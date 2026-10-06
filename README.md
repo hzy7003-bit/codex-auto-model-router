@@ -96,6 +96,10 @@ effort = "high"
 
 Use `router_lite.py decide --profile quality ...` or `plan --profile economy ...` for a temporary choice. `profile-set` changes only the saved profile and preserves route overrides.
 
+## Fast and Standard executor isolation
+
+Service tier is configured on each executor preset, not by toggling the shared `/fast` state. Luna presets leave `service_tier` unset so they inherit the user's Fast preference. GPT-6.1 Sol and Astra executor presets explicitly use `service_tier = "default"` (Standard). These independent per-agent settings allow Luna and Sol executors to run concurrently without changing one another's tier.
+
 ## How it works
 
 Every applicable request follows one of three paths:

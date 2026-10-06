@@ -62,6 +62,10 @@ Use the offline policy in `route_policy.py`; task evidence and supported GPT-6 o
 - GPT-6.1 Sol/xhigh: a classified reasoning or verification failure on complex work.
 - All listed efforts are available through explicit override; automatic use follows the lanes above. Sol/max is explicit-only.
 
+## Fast and Standard executor isolation
+
+Do not toggle shared Fast state. Luna executor presets omit `service_tier` and inherit the user's preference; GPT-6.1 Sol and Astra executor presets set `service_tier = "default"` independently. Router analysis presets remain unchanged. This is per-executor configuration, so concurrent Luna and Sol workers do not share a mutable Fast switch.
+
 Never select Ultra automatically. Luna routes may fall back to Sol at the same effort, and Astra routes may fall back to Sol at the same effort. Sol routes never downgrade; if a preferred route is unavailable, retain the recommendation and follow the normal local fail-open behavior. Reject retired GPT-6 Sol, GPT-5.6, and GPT-5.5 route requests. Keep retired names readable for current-coordinator metadata and historical ledger entries. GPT-5.5 is never an availability fallback. Unknown availability keeps the preferred route advisory.
 
 The user-provided Artificial Analysis graph (recorded 2026-10-02) plots GPT-6 Luna from about index 21 at $0.005/task (low) to index 37 at $0.068 (max), and GPT-6.1 Sol from about index 42 at $0.131 (low) to index 52 at $0.724 (max). Values are estimates from the supplied chart coordinates. The graph supports a value tier for Luna and a higher-capability tier for Sol; it does not establish latency or Codex subscription cost. See [benchmark evidence](references/benchmark-evidence.md).

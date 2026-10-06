@@ -96,6 +96,10 @@ effort = "high"
 
 可以使用 `router_lite.py decide --profile quality ...` 或 `plan --profile economy ...` 临时切换。`profile-set` 只更改已保存的配置名称，并保留通道路由覆盖。
 
+## Fast / Standard executor 隔离
+
+Service tier 配置在每个 executor 预设中，不通过切换共享 `/fast` 状态实现。Luna 预设不设置 `service_tier`，从而继承用户 Fast 偏好；GPT-6.1 Sol 和 Astra executor 则明确使用 `service_tier = "default"`（Standard）。每个 agent 的设置相互独立，Luna 与 Sol 并发时不会互相改变 tier。
+
 ## 工作方式
 
 每个适用请求只走三条路径之一：
