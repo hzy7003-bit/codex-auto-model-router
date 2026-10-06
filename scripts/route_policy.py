@@ -617,7 +617,9 @@ def is_gpt56_model(value):
 
 
 def is_supported_model(value):
-    return value in MODELS
+    # Restore targets must stay within the current GPT-6 execution family;
+    # the single GPT-5.6 Pro route is not a general restoration target.
+    return value in GPT6_MODELS
 
 
 def is_supported_route(model, effort):
@@ -848,9 +850,11 @@ def recommended_route(
 
     lanes = routing_table or CANONICAL_ROUTING_LANES
     failure_lane = None
-    substantive_failure = (
-        task_kind == "complex" and signals["prior_failure"]
-        and failure_kind in ("reasoning", "verification")
+    classified_failure = (
+        signals["prior_failure"] and failure_kind in ("reasoning", "verification")
+    )
+    substantive_failure = classified_failure and (
+        routing_profile in ("plus", "pro") or task_kind == "complex"
     )
     if substantive_failure:
         if routing_profile == "plus":

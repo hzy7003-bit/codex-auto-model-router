@@ -22,7 +22,7 @@ The only GPT-5.6 executor is the explicit Pro strict-implementation route: GPT-5
 
 The benefit-gated executor receives one bounded task and returns one final result. It reads applicable project instructions, performs only that task, and never delegates. In parallel plans, the Coordinator owns dependencies, write scopes, capacity, scheduling, failure handling, aggregation, and cleanup.
 
-For executor isolation, Luna presets omit `service_tier` and inherit the user's Fast preference. Every GPT-6.1 Sol, GPT-5.6 Sol, and GPT-6 Astra executor preset sets `service_tier = "default"` locally. This does not mutate a global Fast setting and allows concurrent executor configurations to remain independent.
+For service-tier isolation, Luna router and executor presets omit `service_tier` and inherit the user's Fast preference. Every GPT-6.1 Sol, GPT-5.6 Sol, and GPT-6 Astra router or executor preset sets `service_tier = "default"` locally. This does not mutate a global Fast setting and allows concurrent agent configurations to remain independent.
 
 The installer replaces Router-owned presets and removes old Router/executor preset files in the target directory. It preserves unrelated custom agents and settings. Current-coordinator metadata and historical ledger entries may still name retired models; those names do not make them selectable routes.
 

@@ -100,7 +100,7 @@ Choose `plus` or `pro` explicitly; Router does not inspect plan metadata or infe
 
 The `plus` policy starts ordinary work on Luna/xhigh, reserves Luna/high for light work, and routes complex work through Sol/high then Sol/xhigh. It never automatically selects Astra. The `pro` policy starts the same way; bounded strict implementation uses GPT-5.6 Sol/xhigh, uncertain or long-horizon agentic work uses GPT-6.1 Sol/xhigh, and Astra/xhigh is reserved for high-consequence work or a classified substantive Sol failure. A prior Luna failure selects the appropriate Sol route rather than jumping directly to Astra.
 
-Executor service tiers are isolated in each executor preset: Luna omits `service_tier` so the user's Fast preference can apply, while GPT-6.1 Sol, GPT-5.6 Sol, and Astra set `service_tier = "default"`. No shared `/fast` state is toggled, so concurrent Luna and Sol agents have independent settings.
+Service tiers are isolated in each model-specific agent preset: Luna router and executor agents omit `service_tier` so the user's Fast preference can apply, while GPT-6.1 Sol, GPT-5.6 Sol, and Astra agents set `service_tier = "default"`. No shared `/fast` state is toggled, so concurrent Luna and Sol agents have independent settings.
 
 ## How it works
 

@@ -100,7 +100,7 @@ Plus/Pro 必须由用户明确选择；Router 不读取套餐元数据，也不�
 
 `plus` 配置：普通开发默认 Luna/xhigh，轻量任务 Luna/high；复杂任务使用 Sol/high，实质失败后升级到 Sol/xhigh；永不自动调用 Astra。`pro` 配置：Luna/high 与 Luna/xhigh 为基础；严格、边界明确的实现使用 GPT-5.6 Sol/xhigh；不确定或长程 agentic 工作使用 GPT-6.1 Sol/xhigh；只有高后果任务或 Sol 实质失败才进入 Astra/xhigh。Luna 失败时先进入相应 Sol 通道，不会直接跳到 Astra。
 
-Executor 的 service tier 在各自预设中隔离：Luna 不设置 `service_tier`，以继承用户 Fast 偏好；GPT-6.1 Sol、GPT-5.6 Sol 和 Astra 明确设置 `service_tier = "default"`。不会切换共享 `/fast` 状态，因此并发 Luna/Sol executor 的配置互不污染。
+Service tier 在每个模型 agent 预设中隔离：Luna 的 router 与 executor agent 不设置 `service_tier`，继承用户 Fast 偏好；GPT-6.1 Sol、GPT-5.6 Sol 和 Astra agent 明确设置 `service_tier = "default"`。不会切换共享 `/fast` 状态，因此并发 Luna/Sol 配置互不污染。
 
 ## 工作方式
 

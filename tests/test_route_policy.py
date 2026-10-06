@@ -231,7 +231,7 @@ class RoutePolicyTests(unittest.TestCase):
             routing_table=routes, routing_profile="plus",
         )
         luna_failure = POLICY.select_route(
-            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            "apply", "ordinary", prior_failure=True, prior_failure_kind="verification",
             previous_model="gpt-6-luna", current=POLICY.unavailable_current(),
             routing_table=routes, routing_profile="plus",
         )
@@ -263,12 +263,12 @@ class RoutePolicyTests(unittest.TestCase):
             routing_table=routes, routing_profile="pro",
         )
         luna_failure_strict = POLICY.select_route(
-            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            "apply", "ordinary", prior_failure=True, prior_failure_kind="verification",
             previous_model="gpt-6-luna", current=POLICY.unavailable_current(),
             routing_table=routes, routing_profile="pro",
         )
         luna_failure_agentic = POLICY.select_route(
-            "apply", "complex", ambiguity="high", prior_failure=True,
+            "apply", "ordinary", ambiguity="high", prior_failure=True,
             prior_failure_kind="reasoning", previous_model="gpt-6-luna",
             current=POLICY.unavailable_current(), routing_table=routes, routing_profile="pro",
         )

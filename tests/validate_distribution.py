@@ -429,6 +429,9 @@ for tier, filename_tier, model in models:
             fail(f"incorrect preset: {name}")
         if data.get("sandbox_mode") != "read-only":
             fail(f"agent must be read-only: {name}")
+        expected_router_tier = "default" if model in ("gpt-6.1-sol", "gpt-6-astra") else None
+        if data.get("service_tier") != expected_router_tier:
+            fail(f"incorrect router service tier: {name}")
         if "Perform only Assess or Retune" not in data.get("developer_instructions", "") or "recursive delegation" not in data.get("developer_instructions", ""):
             fail(f"router subagent scope guard is missing: {name}")
         if f"`{data.get('name')}`" not in preset_mapping:
