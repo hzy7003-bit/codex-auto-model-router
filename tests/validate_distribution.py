@@ -429,6 +429,9 @@ for tier, filename_tier, model in models:
             fail(f"incorrect preset: {name}")
         if data.get("sandbox_mode") != "read-only":
             fail(f"agent must be read-only: {name}")
+        expected_router_tier = "default" if model in ("gpt-6.1-sol", "gpt-6-astra") else None
+        if data.get("service_tier") != expected_router_tier:
+            fail(f"incorrect router service tier: {name}")
         if "Perform only Assess or Retune" not in data.get("developer_instructions", "") or "recursive delegation" not in data.get("developer_instructions", ""):
             fail(f"router subagent scope guard is missing: {name}")
         if f"`{data.get('name')}`" not in preset_mapping:
@@ -443,6 +446,9 @@ for tier, filename_tier, model in models:
             fail(f"incorrect executor name: {executor_name}")
         if executor.get("model") != model or executor.get("model_reasoning_effort") != effort:
             fail(f"incorrect executor preset: {executor_name}")
+        expected_service_tier = "default" if model in ("gpt-6.1-sol", "gpt-6-astra") else None
+        if executor.get("service_tier") != expected_service_tier:
+            fail(f"incorrect executor service tier: {executor_name}")
         if executor.get("sandbox_mode") != "workspace-write":
             fail(f"executor must be workspace-write: {executor_name}")
         instructions = executor.get("developer_instructions", "")
