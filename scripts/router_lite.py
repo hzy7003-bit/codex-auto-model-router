@@ -720,8 +720,9 @@ def _scopes_overlap(left, right):
 
 def _route_key(item):
     route = item["route"]
-    recommended = route.get("recommended_route") or route
-    return recommended["model"], recommended["effort"]
+    # Scheduling and preset reuse must follow the route that will actually
+    # execute after availability fallback, not the preferred recommendation.
+    return route.get("model"), route.get("effort")
 
 
 def _activation_cost(lane, item, fresh_seconds, reused_seconds, max_reuses):
@@ -993,7 +994,11 @@ def plan(args):
     ready = [item for item in decisions if not item["depends_on"]]
     worthwhile = [
         item for item in ready
-        if item["estimated_seconds"] >= args.min_parallel_seconds
+        if (
+            item["estimated_seconds"] >= args.min_parallel_seconds
+            and item["route"].get("model") is not None
+            and item.get("leaf_agent_type") is not None
+        )
     ]
     independent_scopes = True
     seen_scopes = []
@@ -1086,7 +1091,9 @@ def plan(args):
     dispatch_now = priority_order[:parallel_workers] if parallel else []
     print(json.dumps({
         "protocol": LITE_PROTOCOL,
-        "action": "parallel" if parallel else "delegate-or-local",
+        "action": "parallel" if parallel else (
+            "delegate-or-local" if worthwhile else "local"
+        ),
         "parallel": parallel,
         "max_parallelism": min(capacity, len(worthwhile)) if parallel else 1,
         "max_total_tasks": 1 + min(capacity, len(worthwhile)) if parallel else 1,

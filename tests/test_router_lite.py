@@ -907,6 +907,46 @@ class RouterLiteTests(unittest.TestCase):
         self.assertEqual(result["dispatch_now"], ["long", "middle"])
         self.assertEqual(result["local_or_deferred"], ["quick"])
 
+    def test_plan_executor_lane_uses_availability_resolved_route(self):
+        tasks = [
+            {"task_name": "fallback_one", "estimated_seconds": 180,
+             "available_models": ["gpt-6.1-sol"]},
+            {"task_name": "fallback_two", "estimated_seconds": 170,
+             "available_models": ["gpt-6.1-sol"]},
+        ]
+        args = self.plan_args(tasks, max_total_tasks=3, available_worker_slots=2)
+        with patch.object(
+            LITE.policy, "detect_current_route",
+            return_value=LITE.policy.unavailable_current(),
+        ):
+            result = self.output(LITE.plan, args)
+        self.assertTrue(result["parallel"])
+        for task in result["tasks"]:
+            self.assertEqual(task["route"]["recommended_route"]["model"], "gpt-6-luna")
+            self.assertEqual(task["route"]["model"], "gpt-6.1-sol")
+            self.assertEqual(task["leaf_agent_type"], "codex_auto_model_executor_gpt61_sol_high")
+        self.assertEqual(
+            {tuple(lane["route"]) for lane in result["executor_lanes"]},
+            {("gpt-6.1-sol", "high")},
+        )
+
+    def test_plan_keeps_tasks_local_when_no_route_is_available(self):
+        tasks = [
+            {"task_name": name, "estimated_seconds": 180, "available_models": []}
+            for name in ("unavailable_one", "unavailable_two")
+        ]
+        args = self.plan_args(tasks, max_total_tasks=3, available_worker_slots=2)
+        with patch.object(
+            LITE.policy, "detect_current_route",
+            return_value=LITE.policy.unavailable_current(),
+        ):
+            result = self.output(LITE.plan, args)
+        self.assertEqual(result["action"], "local")
+        self.assertFalse(result["parallel"])
+        self.assertEqual(result["dispatch_now"], [])
+        self.assertEqual(result["local_or_deferred"], ["unavailable_one", "unavailable_two"])
+        self.assertTrue(all(task["route"]["model"] is None for task in result["tasks"]))
+
     def test_invalid_parallel_cost_assumption_fails_open(self):
         result = subprocess.run(
             [
