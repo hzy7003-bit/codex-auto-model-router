@@ -193,13 +193,20 @@ class RoutePolicyTests(unittest.TestCase):
 
     def test_profiles_preserve_balanced_and_define_all_lanes(self):
         self.assertEqual(POLICY.ROUTING_PROFILES["balanced"], POLICY.CANONICAL_ROUTING_LANES)
-        self.assertEqual(set(POLICY.ROUTING_PROFILES), {"economy", "balanced", "quality"})
+        self.assertEqual(
+            set(POLICY.ROUTING_PROFILES),
+            {"economy", "balanced", "quality", "plus", "pro"},
+        )
         for profile, routes in POLICY.ROUTING_PROFILES.items():
             with self.subTest(profile=profile):
                 self.assertEqual(set(routes), set(POLICY.TASK_LANES))
                 for route in routes.values():
                     self.assertIn(route["model"], POLICY.MODELS)
                     self.assertIn(route["effort"], POLICY.ROUTED_EFFORTS)
+                    self.assertIn(
+                        route["effort"],
+                        POLICY.MODEL_CATALOG[route["model"]]["routable_efforts"],
+                    )
         self.assertEqual(
             POLICY.ROUTING_PROFILES["quality"]["high_consequence"],
             {"model": "gpt-6-astra", "effort": "high"},
@@ -208,6 +215,107 @@ class RoutePolicyTests(unittest.TestCase):
             POLICY.ROUTING_PROFILES["quality"]["complex_failed_escalation"],
             {"model": "gpt-6-astra", "effort": "xhigh"},
         )
+
+    def test_plus_profile_uses_luna_defaults_and_never_routes_to_astra(self):
+        routes = POLICY.ROUTING_PROFILES["plus"]
+        light = POLICY.select_route(
+            "apply", "mechanical", "low", "tiny", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="plus",
+        )
+        ordinary = POLICY.select_route(
+            "apply", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="plus",
+        )
+        complex_work = POLICY.select_route(
+            "apply", "complex", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="plus",
+        )
+        luna_failure = POLICY.select_route(
+            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            previous_model="gpt-6-luna", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="plus",
+        )
+        sol_failure = POLICY.select_route(
+            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            previous_model="gpt-6.1-sol", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="plus",
+        )
+        self.assertEqual((light["recommended"]["model"], light["recommended"]["effort"]),
+                         ("gpt-6-luna", "high"))
+        self.assertEqual((ordinary["recommended"]["model"], ordinary["recommended"]["effort"]),
+                         ("gpt-6-luna", "xhigh"))
+        self.assertEqual((complex_work["recommended"]["model"], complex_work["recommended"]["effort"]),
+                         ("gpt-6.1-sol", "high"))
+        self.assertEqual((luna_failure["recommended"]["model"], luna_failure["recommended"]["effort"]),
+                         ("gpt-6.1-sol", "high"))
+        self.assertEqual((sol_failure["recommended"]["model"], sol_failure["recommended"]["effort"]),
+                         ("gpt-6.1-sol", "xhigh"))
+        self.assertTrue(all(route["model"] != "gpt-6-astra" for route in routes.values()))
+
+    def test_pro_profile_splits_sol_work_and_gates_astra_at_xhigh(self):
+        routes = POLICY.ROUTING_PROFILES["pro"]
+        strict = POLICY.select_route(
+            "apply", "complex", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="pro",
+        )
+        agentic = POLICY.select_route(
+            "apply", "complex", size="large", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="pro",
+        )
+        luna_failure_strict = POLICY.select_route(
+            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            previous_model="gpt-6-luna", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="pro",
+        )
+        luna_failure_agentic = POLICY.select_route(
+            "apply", "complex", ambiguity="high", prior_failure=True,
+            prior_failure_kind="reasoning", previous_model="gpt-6-luna",
+            current=POLICY.unavailable_current(), routing_table=routes, routing_profile="pro",
+        )
+        sol_failure = POLICY.select_route(
+            "apply", "complex", prior_failure=True, prior_failure_kind="verification",
+            previous_model="gpt-6.1-sol", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="pro",
+        )
+        extreme = POLICY.select_route(
+            "apply", "complex", risk="high", current=POLICY.unavailable_current(),
+            routing_table=routes, routing_profile="pro",
+        )
+        self.assertEqual((strict["recommended"]["model"], strict["recommended"]["effort"]),
+                         ("gpt-5.6-sol", "xhigh"))
+        self.assertEqual((agentic["recommended"]["model"], agentic["recommended"]["effort"]),
+                         ("gpt-6.1-sol", "xhigh"))
+        self.assertEqual(luna_failure_strict["recommended"]["model"], "gpt-5.6-sol")
+        self.assertEqual(luna_failure_agentic["recommended"]["model"], "gpt-6.1-sol")
+        self.assertEqual((sol_failure["recommended"]["model"], sol_failure["recommended"]["effort"]),
+                         ("gpt-6-astra", "xhigh"))
+        self.assertEqual((extreme["recommended"]["model"], extreme["recommended"]["effort"]),
+                         ("gpt-6-astra", "xhigh"))
+
+    def test_pro_strict_route_falls_back_to_gpt61_sol_when_gpt56_is_unavailable(self):
+        selected = POLICY.select_route(
+            "apply", "complex", current=POLICY.unavailable_current(),
+            available_models=["gpt-6.1-sol"],
+            routing_table=POLICY.ROUTING_PROFILES["pro"], routing_profile="pro",
+        )
+        self.assertEqual(selected["recommended"]["model"], "gpt-5.6-sol")
+        self.assertEqual(selected["execution"]["model"], "gpt-6.1-sol")
+        self.assertTrue(selected["fallback"]["fallback"])
+
+    def test_profile_set_persists_plus_and_pro_using_existing_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            codex_home = root / "codex"
+            project = root / "project"
+            for selected in ("plus", "pro"):
+                saved = POLICY.set_routing_profile(
+                    selected, "global", project, {"CODEX_HOME": str(codex_home)}
+                )
+                resolved = POLICY.resolve_routing_config(
+                    project, environ={"CODEX_HOME": str(codex_home)}
+                )
+                self.assertEqual(saved["profile"], selected)
+                self.assertEqual(resolved["profile"], selected)
 
     def test_routing_config_precedence_and_command_profile(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -402,18 +510,19 @@ class RoutePolicyTests(unittest.TestCase):
             ("gpt-6.1-sol", "max"),
         )
 
-    def test_gpt56_route_targets_are_rejected(self):
-        for target in ("Terra", "gpt-5.6-terra", "GPT-5.6 Sol"):
+    def test_gpt56_is_limited_to_the_pro_strict_xhigh_route(self):
+        for target in ("Terra", "gpt-5.6-terra", "gpt-5.6-luna"):
             with self.subTest(target=target), self.assertRaisesRegex(
-                ValueError, "GPT-5.6 models are not routable"
+                ValueError, "unsupported routable model"
             ):
-                POLICY.resolve_family_fallback(target, "medium")
-        for target in ("Terra", "gpt-5.6-sol"):
-            with self.subTest(select_route=target), self.assertRaisesRegex(
-                ValueError, "GPT-5.6 models are not routable"
-            ):
-                POLICY.select_route("apply", model_override=target)
-        with self.assertRaisesRegex(ValueError, "GPT-5.6 models are not routable"):
+                POLICY.resolve_family_fallback(target, "xhigh")
+        strict = POLICY.select_route(
+            "apply", model_override="gpt-5.6-sol", effort_override="xhigh"
+        )
+        self.assertEqual(strict["recommended"]["model"], "gpt-5.6-sol")
+        with self.assertRaisesRegex(ValueError, "does not support reasoning effort"):
+            POLICY.select_route("apply", model_override="gpt-5.6-sol", effort_override="high")
+        with self.assertRaisesRegex(ValueError, "unsupported routable model"):
             POLICY.plan_apply_segments(
                 [self.segment("legacy-route")], model_override="Terra"
             )
@@ -447,8 +556,8 @@ class RoutePolicyTests(unittest.TestCase):
                 self.assertEqual(result["execution"]["model"], expected_model)
                 self.assertNotEqual(result["execution"]["model"], "gpt-5.5")
 
-    def test_unknown_availability_does_not_make_gpt56_routable(self):
-        with self.assertRaisesRegex(ValueError, "GPT-5.6 models are not routable"):
+    def test_unknown_availability_does_not_make_unsupported_legacy_models_routable(self):
+        with self.assertRaisesRegex(ValueError, "unsupported routable model"):
             POLICY.resolve_family_fallback("Terra", "medium")
 
     def test_empty_availability_never_invents_gpt55(self):

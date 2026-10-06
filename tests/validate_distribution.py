@@ -443,6 +443,9 @@ for tier, filename_tier, model in models:
             fail(f"incorrect executor name: {executor_name}")
         if executor.get("model") != model or executor.get("model_reasoning_effort") != effort:
             fail(f"incorrect executor preset: {executor_name}")
+        expected_service_tier = "default" if model in ("gpt-6.1-sol", "gpt-6-astra") else None
+        if executor.get("service_tier") != expected_service_tier:
+            fail(f"incorrect executor service tier: {executor_name}")
         if executor.get("sandbox_mode") != "workspace-write":
             fail(f"executor must be workspace-write: {executor_name}")
         instructions = executor.get("developer_instructions", "")
@@ -468,11 +471,28 @@ if list((ROOT / "codex-agents").glob("codex-auto-model-router*.toml")) and any(
     for path in (ROOT / "codex-agents").glob("codex-auto-model-router*.toml")
 ):
     fail("GPT-5.6 router presets must not be distributed")
-if list((ROOT / "codex-agents").glob("codex-auto-model-executor*.toml")) and any(
-    "gpt-5.6" in path.read_text(encoding="utf-8")
-    for path in (ROOT / "codex-agents").glob("codex-auto-model-executor*.toml")
+legacy_executors = list((ROOT / "codex-agents").glob("codex-auto-model-executor-gpt56-*.toml"))
+if [path.name for path in legacy_executors] != ["codex-auto-model-executor-gpt56-sol-xhigh.toml"]:
+    fail("only the explicit GPT-5.6 Sol xhigh Pro executor may be distributed")
+legacy_executor = tomllib.loads(legacy_executors[0].read_text(encoding="utf-8"))
+if (
+    legacy_executor.get("model") != "gpt-5.6-sol"
+    or legacy_executor.get("model_reasoning_effort") != "xhigh"
+    or legacy_executor.get("service_tier") != "default"
+    or legacy_executor.get("sandbox_mode") != "workspace-write"
 ):
-    fail("GPT-5.6 executor presets must not be distributed")
+    fail("GPT-5.6 Sol executor must be Pro-only xhigh on Standard")
+for phrase in (
+    "Accept a direct routed task", "do not require route IDs, hashes, tickets",
+    "do not route or delegate", "Treat the task capsule as self-contained",
+    "immediately send exactly one final reply", "do not continue validation",
+    "do not request approval", "return a limited result",
+    "Never create a top-level Codex task",
+):
+    if phrase not in legacy_executor.get("developer_instructions", ""):
+        fail(f"GPT-5.6 Sol executor guard is missing: {phrase}")
+if f"`{legacy_executor.get('name')}`" not in preset_mapping:
+    fail("GPT-5.6 Sol executor preset mapping is missing")
 if list((ROOT / "codex-agents").glob("*ultra*.toml")):
     fail("Ultra must remain explicit and must not have a Router or executor preset")
 
@@ -513,4 +533,4 @@ for forbidden in ("s" + "k-" + "live", "BEGIN " + "PRIVATE KEY", "api" + "_key")
         ):
             fail(f"possible secret marker {forbidden!r} in {path}")
 
-print("distribution OK: skill metadata, UI metadata, 15 GPT-6 router presets, 15 GPT-6 executor presets, no obvious secrets")
+print("distribution OK: skill metadata, UI metadata, 15 GPT-6 router presets, 15 GPT-6 executors, one Pro GPT-5.6 Sol xhigh executor, no obvious secrets")

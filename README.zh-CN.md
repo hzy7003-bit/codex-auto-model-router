@@ -2,7 +2,7 @@
 
 [![Validate](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml/badge.svg)](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml)
 
-**面向 OpenAI Codex 的轻量 GPT-6 Astra、GPT-6.1 Sol 和 GPT-6 Luna 推理路由器。** 将任务语义与具体模型标识分开，并提供三个可切换的路由配置。GPT-6 Sol、GPT-5.6 和 GPT-5.5 不再用于路由，但仍可读取历史记录。
+**面向 OpenAI Codex 的轻量 GPT-6 Astra、GPT-6.1 Sol 和 GPT-6 Luna 推理路由器。** 将任务语义与具体模型标识分开，并提供可切换的路由配置，包括由用户显式选择的 Plus 和 Pro 策略。GPT-6 Sol、GPT-5.6 Terra/Luna 和 GPT-5.5 不用于路由；GPT-5.6 Sol 仅用于 Pro 的严格实现通道，历史记录仍可读取。
 
 [English](README.md) · [路由反馈](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=routing-feedback.yml) · [问题反馈](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=bug-report.yml)
 
@@ -72,7 +72,7 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/codex-auto-model-router/scripts/rout
 
 ## 路由配置与覆盖
 
-内置的 `balanced` 保留原有路由表。`economy` 在所有通道优先选择 Luna；`quality` 将机械任务保留在 Luna，其他工作使用 Sol，并在高后果任务和分类后的复杂失败中使用 Astra/high 或 Astra/xhigh。这些配置表达模型与推理强度偏好，不保证延迟表现。
+内置的 `balanced` 保留原有路由表。`economy` 在所有通道优先选择 Luna；`quality` 将机械任务保留在 Luna，其他工作使用 Sol，并在高后果任务和分类后的复杂失败中使用 Astra/high 或 Astra/xhigh。显式 `plus`、`pro` 配置使用下述策略。这些配置表达模型与推理强度偏好，不保证延迟表现。
 
 可保存全局或当前项目的默认配置，也可为单条命令临时选择：
 
@@ -96,9 +96,11 @@ effort = "high"
 
 可以使用 `router_lite.py decide --profile quality ...` 或 `plan --profile economy ...` 临时切换。`profile-set` 只更改已保存的配置名称，并保留通道路由覆盖。
 
-## Fast / Standard executor 隔离
+Plus/Pro 必须由用户明确选择；Router 不读取套餐元数据，也不根据模型是否可用推断套餐。用户说“使用 Pro 路由”或“切回 Plus”时，将其映射到 `profile-set pro|plus --scope global`；用 `profile-show` 查询已保存的配置。尚未选择时继续使用现有 `balanced` 默认值，以保持兼容。
 
-Service tier 配置在每个 executor 预设中，不通过切换共享 `/fast` 状态实现。Luna 预设不设置 `service_tier`，从而继承用户 Fast 偏好；GPT-6.1 Sol 和 Astra executor 则明确使用 `service_tier = "default"`（Standard）。每个 agent 的设置相互独立，Luna 与 Sol 并发时不会互相改变 tier。
+`plus` 配置：普通开发默认 Luna/xhigh，轻量任务 Luna/high；复杂任务使用 Sol/high，实质失败后升级到 Sol/xhigh；永不自动调用 Astra。`pro` 配置：Luna/high 与 Luna/xhigh 为基础；严格、边界明确的实现使用 GPT-5.6 Sol/xhigh；不确定或长程 agentic 工作使用 GPT-6.1 Sol/xhigh；只有高后果任务或 Sol 实质失败才进入 Astra/xhigh。Luna 失败时先进入相应 Sol 通道，不会直接跳到 Astra。
+
+Executor 的 service tier 在各自预设中隔离：Luna 不设置 `service_tier`，以继承用户 Fast 偏好；GPT-6.1 Sol、GPT-5.6 Sol 和 Astra 明确设置 `service_tier = "default"`。不会切换共享 `/fast` 状态，因此并发 Luna/Sol executor 的配置互不污染。
 
 ## 工作方式
 
@@ -148,7 +150,7 @@ CLI 默认启用收益门槛委派；`--no-subagents` 是明确退出开关。�
 | 高后果任务 | balanced 使用 GPT-6.1 Sol / high；quality 使用 GPT-6 Astra / high |
 | 复杂推理或验证已有失败 | balanced 使用 GPT-6.1 Sol / xhigh；quality 使用 GPT-6 Astra / xhigh |
 
-`latency_priority` 通道名为兼容而保留，其 `balanced` 配置的 Luna/max 路由体现成本与能力取舍，不代表最快路由。`sol` 表示 GPT-6.1 Sol，`astra` 表示 GPT-6 Astra。GPT-6 Sol、GPT-5.6 和 GPT-5.5 不可用于路由，但历史执行记录仍可读取。
+`latency_priority` 通道名为兼容而保留，其 `balanced` 配置的 Luna/max 路由体现成本与能力取舍，不代表最快路由。`sol` 表示 GPT-6.1 Sol，`astra` 表示 GPT-6 Astra。GPT-6 Sol、GPT-5.6 Terra/Luna 和 GPT-5.5 不可用于路由；GPT-5.6 Sol/xhigh 仅限 Pro 严格实现通道。历史执行记录仍可读取。
 
 Ultra 永不自动启用。用户显式使用 Ultra 时，由其原生编排接管，并关闭 Router 并发。Luna 路由不可用时可按相同 effort 回退到 Sol；Sol 路由不会降级到 Luna。Sol 不可用时，保留首选路由建议并按常规本地 fail-open 路径处理。GPT-5.5 不再作为可用性回退。
 

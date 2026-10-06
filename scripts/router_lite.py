@@ -236,9 +236,7 @@ def _route_is_sufficient(current, selected):
     current_model = current.get("model")
     current_effort = current.get("effort")
     fallback_chain = selected.get("fallback", {}).get("fallback_chain", [])
-    if current_model not in policy.MODELS:
-        return False
-    if current_effort not in EFFORT_RANK:
+    if not policy.is_supported_route(current_model, current_effort):
         return False
     return any(
         candidate.get("model") == current_model
@@ -294,6 +292,7 @@ def _decision(args, task=None, current=None):
         ),
         routing_table=routing_config["routes"],
         routing_profile=routing_config["profile"],
+        previous_model=task.get("previous_model", getattr(args, "previous_model", None)),
     )
     preferred_model = selected["recommended"]["model"]
     preferred_effort = selected["recommended"]["effort"]
@@ -314,7 +313,9 @@ def _decision(args, task=None, current=None):
     min_delegate_seconds = int(getattr(args, "min_delegate_seconds", DEFAULT_MIN_DELEGATE_SECONDS))
     if min_delegate_seconds < 0:
         raise ValueError("minimum delegate seconds cannot be negative")
-    current_is_supported = current.get("model") in policy.MODELS
+    current_is_supported = policy.is_supported_route(
+        current.get("model"), current.get("effort")
+    )
     current_is_sufficient = _route_is_sufficient(current, selected)
     subagent_policy = _subagent_policy(args)
     subagents_allowed = subagent_policy["allowed"]
@@ -786,7 +787,7 @@ def _reuse_candidates(value, max_reuses, identity):
             raise ValueError("reuse candidate names must be unique")
         model = policy.normalize_model(item.get("model"))
         effort = policy.normalize_effort(item.get("effort"))
-        if model not in policy.MODELS or effort not in EFFORT_RANK:
+        if not policy.is_supported_route(model, effort):
             raise ValueError("reuse candidate requires a supported catalog route")
         followups_used = item.get("followups_used", 0)
         if not isinstance(followups_used, int) or followups_used < 0:
@@ -1205,6 +1206,10 @@ def _add_route_arguments(parser):
     parser.add_argument("--latency-priority", choices=("low", "normal", "high"))
     parser.add_argument("--prior-failure", action="store_true")
     parser.add_argument("--prior-failure-kind", choices=("unknown", "reasoning", "verification", "infrastructure"))
+    parser.add_argument(
+        "--previous-model",
+        help="Model used for the prior attempt; required to gate Pro Astra escalation",
+    )
     parser.add_argument("--tool-bound", action="store_true")
     parser.add_argument("--estimated-seconds", type=int)
     parser.add_argument(

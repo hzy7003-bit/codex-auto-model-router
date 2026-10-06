@@ -2,7 +2,7 @@
 
 [![Validate](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml/badge.svg)](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml)
 
-**A lightweight GPT-6 Astra, GPT-6.1 Sol, and GPT-6 Luna reasoning router for OpenAI Codex.** It separates task lanes from model identities and provides three switchable routing profiles. GPT-6 Sol, GPT-5.6, and GPT-5.5 remain unavailable for routing and readable in historical records.
+**A lightweight GPT-6 Astra, GPT-6.1 Sol, and GPT-6 Luna reasoning router for OpenAI Codex.** It separates task lanes from model identities and provides switchable routing profiles, including explicit Plus and Pro policies. GPT-6 Sol, GPT-5.6 Terra/Luna, and GPT-5.5 remain unavailable for routing and readable in historical records; GPT-5.6 Sol is limited to the Pro strict-implementation lane.
 
 [简体中文](README.zh-CN.md) · [Routing feedback](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=routing-feedback.yml) · [Bug report](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=bug-report.yml)
 
@@ -72,7 +72,7 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/codex-auto-model-router/scripts/rout
 
 ## Routing profiles and overrides
 
-The built-in `balanced` profile preserves the original table. `economy` favors Luna across every lane; `quality` keeps mechanical tasks on Luna, uses Sol for other work, and selects Astra/high or Astra/xhigh for high-consequence work and classified complex failures. These profiles express model and effort preferences, not latency guarantees.
+The built-in `balanced` profile preserves the original table. `economy` favors Luna across every lane; `quality` keeps mechanical tasks on Luna, uses Sol for other work, and selects Astra/high or Astra/xhigh for high-consequence work and classified complex failures. The explicit `plus` and `pro` profiles apply the policy tables below. These profiles express model and effort preferences, not latency guarantees.
 
 Save a default globally or for the current project, or select one for a single command:
 
@@ -96,9 +96,11 @@ effort = "high"
 
 Use `router_lite.py decide --profile quality ...` or `plan --profile economy ...` for a temporary choice. `profile-set` changes only the saved profile and preserves route overrides.
 
-## Fast and Standard executor isolation
+Choose `plus` or `pro` explicitly; Router does not inspect plan metadata or infer a subscription from model availability. Natural-language requests such as “use Pro routing” or “switch to Plus” should map to `profile-set pro|plus --scope global`. Ask `profile-show` to report the saved choice. The existing `balanced` default remains for users who have not selected a profile, preserving backward compatibility.
 
-Service tier is configured on each executor preset, not by toggling the shared `/fast` state. Luna presets leave `service_tier` unset so they inherit the user's Fast preference. GPT-6.1 Sol and Astra executor presets explicitly use `service_tier = "default"` (Standard). These independent per-agent settings allow Luna and Sol executors to run concurrently without changing one another's tier.
+The `plus` policy starts ordinary work on Luna/xhigh, reserves Luna/high for light work, and routes complex work through Sol/high then Sol/xhigh. It never automatically selects Astra. The `pro` policy starts the same way; bounded strict implementation uses GPT-5.6 Sol/xhigh, uncertain or long-horizon agentic work uses GPT-6.1 Sol/xhigh, and Astra/xhigh is reserved for high-consequence work or a classified substantive Sol failure. A prior Luna failure selects the appropriate Sol route rather than jumping directly to Astra.
+
+Executor service tiers are isolated in each executor preset: Luna omits `service_tier` so the user's Fast preference can apply, while GPT-6.1 Sol, GPT-5.6 Sol, and Astra set `service_tier = "default"`. No shared `/fast` state is toggled, so concurrent Luna and Sol agents have independent settings.
 
 ## How it works
 
@@ -148,7 +150,7 @@ The CLI enables benefit-gated subagents by default. `--no-subagents` is the expl
 | High-consequence work | GPT-6.1 Sol / high in balanced; GPT-6 Astra / high in quality |
 | Failed complex reasoning or verification | GPT-6.1 Sol / xhigh in balanced; GPT-6 Astra / xhigh in quality |
 
-The `latency_priority` lane name is retained for compatibility; its Luna/max route in `balanced` is a cost/value choice, not a fastest-route claim. `sol` selects GPT-6.1 Sol and `astra` selects GPT-6 Astra. GPT-6 Sol, GPT-5.6, and GPT-5.5 are unavailable for routing, while historical execution records remain readable.
+The `latency_priority` lane name is retained for compatibility; its Luna/max route in `balanced` is a cost/value choice, not a fastest-route claim. `sol` selects GPT-6.1 Sol and `astra` selects GPT-6 Astra. GPT-6 Sol, GPT-5.6 Terra/Luna, and GPT-5.5 are unavailable for routing; GPT-5.6 Sol/xhigh is reserved for Pro strict implementation. Historical execution records remain readable.
 
 Ultra is never automatic. Explicit Ultra uses its native orchestration and disables Router-managed parallelism. Unknown model availability keeps the preferred route advisory. If Sol is unavailable, the router retains its recommendation and follows the local fail-open path.
 

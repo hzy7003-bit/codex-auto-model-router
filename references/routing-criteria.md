@@ -1,6 +1,6 @@
 # Routing criteria
 
-Choose a semantic task lane from task evidence, then resolve it through the selected `economy`, `balanced`, or `quality` table and three-model catalog. `balanced` is the default and preserves the original table. See [benchmark evidence](benchmark-evidence.md) for the supplied Artificial Analysis graph and its limits. The older GPT-5.6 snapshot is retained as history and does not calibrate these routes.
+Choose a semantic task lane from task evidence, then resolve it through the selected `economy`, `balanced`, `quality`, `plus`, or `pro` table. `balanced` is the default and preserves the original table. Plus/Pro are explicit user selections; do not infer a plan from account metadata or model availability. See [benchmark evidence](benchmark-evidence.md) for the supplied Artificial Analysis graph and its limits. The historical GPT-5.6 snapshot does not calibrate current routes.
 
 Assess and Retune default to GPT-6.1 Sol/high. Supported explicit model and effort overrides win. Recommendations remain advisory until execution is observed; the coordinator model stays fixed, and a routed leaf runs as a separate task.
 
@@ -22,9 +22,19 @@ Sol/max remains available only by explicit override. Ultra is never automatic; e
 
 ## Route validation and fallback
 
-The routable IDs are gpt-6-astra, gpt-6.1-sol, and gpt-6-luna. The shorthand `astra` means GPT-6 Astra and `sol` means GPT-6.1 Sol. Reject retired GPT-6 Sol, GPT-5.6, and GPT-5.5 as route requests. Preserve historical names when reading prior ledger entries or coordinator metadata.
+The normal catalog IDs are gpt-6-astra, gpt-6.1-sol, and gpt-6-luna. GPT-5.6 Sol/xhigh is additionally available only for Pro strict-implementation work; GPT-5.6 Terra/Luna, other GPT-5.6 Sol efforts, retired GPT-6 Sol, and GPT-5.5 are not routable. Preserve historical names when reading prior ledger entries or coordinator metadata.
 
-When Luna or Astra is unavailable, its lane may use Sol at the same effort. Sol routes never fall back to another model. If Sol is unavailable, retain the preferred recommendation and follow the normal local fail-open behavior. GPT-5.5 is never an availability fallback. Unknown availability keeps the preferred route advisory.
+When Luna or Astra is unavailable, its lane may use GPT-6.1 Sol at the same effort. GPT-5.6 Sol/xhigh may fall back to GPT-6.1 Sol/xhigh. Other Sol routes do not downgrade; if no executable route is available, retain the recommendation and follow the normal local fail-open behavior. GPT-5.5 is never an availability fallback. Unknown availability keeps the preferred route advisory.
+
+## Explicit Plus and Pro policies
+
+`plus` uses Luna/high for light work, Luna/xhigh for ordinary development, GPT-6.1 Sol/high for complex work, and Sol/xhigh after a substantive Sol failure or for high consequence. It never selects Astra automatically.
+
+`pro` uses the same Luna base. After Luna is unsuitable or fails, bounded, low-ambiguity implementation maps to GPT-5.6 Sol/xhigh; high-ambiguity, high-coupling, or large complex work maps to GPT-6.1 Sol/xhigh. A classified substantive failure from either Sol route maps to Astra/xhigh. High-consequence work may also use Astra/xhigh. Astra is not selected for ordinary complexity, and there is no Astra medium/high intermediate step.
+
+The user selects and persists a profile through the existing `router.toml` mechanism. The Router does not read subscription metadata, inspect Astra entitlement, or switch profile when accounts or model catalogs change.
+
+Executor service tiers are per preset: Luna leaves the tier unset to inherit the user's Fast preference; Sol and Astra executors set `service_tier = "default"`. Do not toggle a shared Fast setting.
 
 ## Task signals
 

@@ -122,6 +122,43 @@ class RouterLiteTests(unittest.TestCase):
         })
         self.assertEqual(result["agent_type"], "codex_auto_model_executor_gpt6_astra_high")
 
+    def test_plus_profile_never_selects_astra(self):
+        with patch.object(LITE.policy, "resolve_routing_config") as resolve_config:
+            resolve_config.return_value = {
+                "profile": "plus", "routes": LITE.policy.ROUTING_PROFILES["plus"],
+            }
+            result = self.output(LITE.decide, self.args(
+                profile="plus", task_kind="complex", risk="high",
+                estimated_seconds=180, no_runtime_detection=True,
+            ))
+        self.assertEqual(result["routing_profile"], "plus")
+        self.assertEqual(result["recommended_route"], {
+            "model": "gpt-6.1-sol", "effort": "xhigh",
+        })
+        self.assertNotIn("astra", result["agent_type"])
+
+    def test_pro_profile_selects_strict_and_agentic_presets_by_task_signals(self):
+        with patch.object(LITE.policy, "resolve_routing_config") as resolve_config:
+            resolve_config.return_value = {
+                "profile": "pro", "routes": LITE.policy.ROUTING_PROFILES["pro"],
+            }
+            strict = self.output(LITE.decide, self.args(
+                profile="pro", task_kind="complex", estimated_seconds=180,
+                no_runtime_detection=True,
+            ))
+            agentic = self.output(LITE.decide, self.args(
+                profile="pro", task_kind="complex", size="large",
+                estimated_seconds=180, no_runtime_detection=True,
+            ))
+        self.assertEqual(strict["recommended_route"], {
+            "model": "gpt-5.6-sol", "effort": "xhigh",
+        })
+        self.assertEqual(strict["agent_type"], "codex_auto_model_executor_gpt56_sol_xhigh")
+        self.assertEqual(agentic["recommended_route"], {
+            "model": "gpt-6.1-sol", "effort": "xhigh",
+        })
+        self.assertEqual(agentic["agent_type"], "codex_auto_model_executor_gpt61_sol_xhigh")
+
     def test_plan_resolves_profile_once_for_all_tasks(self):
         tasks = [
             {"task_name": "critical_one", "risk": "high", "consequence": "high"},
@@ -178,6 +215,22 @@ class RouterLiteTests(unittest.TestCase):
             self.assertEqual(shown["profile"], "quality")
             self.assertEqual(shown["route_sources"]["complex_uncertain"], "project")
             self.assertIn("# kept comment", path.read_text())
+
+    def test_explicit_profile_switches_persist_plus_and_pro(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            codex_home = root / "codex"
+            repository = root / "project"
+            repository.mkdir()
+            with patch.dict(LITE.os.environ, {"CODEX_HOME": str(codex_home)}):
+                for selected in ("plus", "pro"):
+                    self.output(LITE.profile_set, SimpleNamespace(
+                        profile_name=selected, scope="global", repository=repository,
+                    ))
+                    shown = self.output(LITE.profile_show, SimpleNamespace(
+                        repository=repository, profile=None,
+                    ))
+                    self.assertEqual(shown["profile"], selected)
 
     def test_invalid_configuration_fails_open_with_actionable_warning(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -909,10 +962,14 @@ class RouterLiteTests(unittest.TestCase):
 
     def test_plan_executor_lane_uses_availability_resolved_route(self):
         tasks = [
-            {"task_name": "fallback_one", "estimated_seconds": 180,
-             "available_models": ["gpt-6.1-sol"]},
-            {"task_name": "fallback_two", "estimated_seconds": 170,
-             "available_models": ["gpt-6.1-sol"]},
+            {
+                "task_name": "fallback_one", "estimated_seconds": 180,
+                "available_models": ["gpt-6.1-sol"],
+            },
+            {
+                "task_name": "fallback_two", "estimated_seconds": 170,
+                "available_models": ["gpt-6.1-sol"],
+            },
         ]
         args = self.plan_args(tasks, max_total_tasks=3, available_worker_slots=2)
         with patch.object(
@@ -920,6 +977,7 @@ class RouterLiteTests(unittest.TestCase):
             return_value=LITE.policy.unavailable_current(),
         ):
             result = self.output(LITE.plan, args)
+
         self.assertTrue(result["parallel"])
         for task in result["tasks"]:
             self.assertEqual(task["route"]["recommended_route"]["model"], "gpt-6-luna")
@@ -932,7 +990,10 @@ class RouterLiteTests(unittest.TestCase):
 
     def test_plan_keeps_tasks_local_when_no_route_is_available(self):
         tasks = [
-            {"task_name": name, "estimated_seconds": 180, "available_models": []}
+            {
+                "task_name": name, "estimated_seconds": 180,
+                "available_models": [],
+            }
             for name in ("unavailable_one", "unavailable_two")
         ]
         args = self.plan_args(tasks, max_total_tasks=3, available_worker_slots=2)
@@ -941,10 +1002,13 @@ class RouterLiteTests(unittest.TestCase):
             return_value=LITE.policy.unavailable_current(),
         ):
             result = self.output(LITE.plan, args)
+
         self.assertEqual(result["action"], "local")
         self.assertFalse(result["parallel"])
         self.assertEqual(result["dispatch_now"], [])
-        self.assertEqual(result["local_or_deferred"], ["unavailable_one", "unavailable_two"])
+        self.assertEqual(
+            result["local_or_deferred"], ["unavailable_one", "unavailable_two"]
+        )
         self.assertTrue(all(task["route"]["model"] is None for task in result["tasks"]))
 
     def test_invalid_parallel_cost_assumption_fails_open(self):
