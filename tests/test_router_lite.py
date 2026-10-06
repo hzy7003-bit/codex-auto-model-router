@@ -674,6 +674,26 @@ class RouterLiteTests(unittest.TestCase):
         self.assertEqual(result["reuse_target"], "bounded_worker")
         self.assertEqual(result["reason"], "safe-same-request-reuse")
 
+    def test_sequential_reuse_matches_availability_resolved_executor(self):
+        candidate = reusable_candidate(
+            "sol_worker", model="gpt-6.1-sol", effort="high"
+        )
+        with patch.object(
+            LITE.policy, "detect_current_route",
+            return_value=LITE.policy.unavailable_current(),
+        ):
+            result = self.output(LITE.decide, self.args(
+                task_kind="ordinary", risk="normal", estimated_seconds=180,
+                available_model=["gpt-6.1-sol"],
+                reuse_candidates_json=json.dumps([candidate]),
+            ))
+        self.assertEqual(result["recommended_route"]["model"], "gpt-6-luna")
+        self.assertEqual(result["execution_route"], {
+            "model": "gpt-6.1-sol", "effort": "high",
+        })
+        self.assertEqual(result["action"], "reuse")
+        self.assertEqual(result["reuse_target"], "sol_worker")
+
     def test_sequential_reuse_rejects_identity_mismatch_and_review(self):
         current = {
             "status": "verified", "thread_id": "t",

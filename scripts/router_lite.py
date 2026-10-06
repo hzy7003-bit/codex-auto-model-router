@@ -298,6 +298,7 @@ def _decision(args, task=None, current=None):
     preferred_effort = selected["recommended"]["effort"]
     model = selected["execution"]["model"]
     effort = selected["execution"]["effort"]
+    execution_route = {"model": model, "effort": effort}
     explicit_route = bool(task.get("model", args.model) or task.get("effort", args.effort))
     task_kind = task.get("task_kind", args.task_kind)
     risk = task.get("risk", args.risk)
@@ -428,6 +429,7 @@ def _decision(args, task=None, current=None):
         "action": action,
         "model": actual_model,
         "effort": actual_effort,
+        "execution_route": execution_route,
         "agent_type": agent_type,
         "spawn_contract": (
             None if agent_type is None else {
@@ -654,8 +656,8 @@ def decide(args):
     recommended_differs = (
         result["current"].get("model"), result["current"].get("effort")
     ) != (
-        result["recommended_route"]["model"],
-        result["recommended_route"]["effort"],
+        result["execution_route"]["model"],
+        result["execution_route"]["effort"],
     )
     reuse_beats_local_startup = (
         result["action"] == "local"
@@ -674,8 +676,8 @@ def decide(args):
         candidate = next((
             item for item in candidates
             if (item["model"], item["effort"]) == (
-                result["recommended_route"]["model"],
-                result["recommended_route"]["effort"],
+                result["execution_route"]["model"],
+                result["execution_route"]["effort"],
             )
         ), None)
         if candidate is not None:
@@ -723,7 +725,8 @@ def _route_key(item):
     route = item["route"]
     # Scheduling and preset reuse must follow the route that will actually
     # execute after availability fallback, not the preferred recommendation.
-    return route.get("model"), route.get("effort")
+    execution = route.get("execution_route") or route
+    return execution.get("model"), execution.get("effort")
 
 
 def _activation_cost(lane, item, fresh_seconds, reused_seconds, max_reuses):
