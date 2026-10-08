@@ -47,6 +47,7 @@ def reusable_candidate(name, model="gpt-5.6-luna", effort="high", **overrides):
 class RouterLiteTests(unittest.TestCase):
     def args(self, **overrides):
         values = {
+            "model_policy": "legacy",  # Preserve the pre-catalog compatibility contract.
             "task_kind": "ordinary", "risk": "normal", "size": "normal",
             "ambiguity": None, "coupling": None, "verification": None,
             "consequence": None, "latency_priority": None,
@@ -931,7 +932,7 @@ class RouterLiteTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         payload = json.loads(result.stdout)
         self.assertNotIn("warning", payload)
-        self.assertEqual(payload["recommended_route"]["model"], "gpt-5.6-luna")
+        self.assertEqual(payload["recommended_route"]["model"], "gpt-6-luna")
 
     def test_cli_unknown_argument_fails_open_with_success_exit(self):
         result = subprocess.run(

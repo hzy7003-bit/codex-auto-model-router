@@ -165,9 +165,9 @@ for phrase in (
         fail(f"Chinese routing overview or release note is missing: {phrase}")
 for model_contract in (
     "Luna/medium", "Luna/high", "Luna/xhigh", "Luna/max",
-    "Terra/high", "Sol/low", "Sol/medium", "Sol/high", "Sol/xhigh",
+    "Terra/high", "Sol/low", "Sol/medium", "Astra/low", "Astra/medium",
     "Never select Ultra automatically",
-    "GPT-5.5 is allowed only after the complete GPT-5.6 family is proven unavailable",
+    "Automatic Astra fallback must disclose capability degradation",
 ):
     if model_contract not in skill_text:
         fail(f"model gradient is missing: {model_contract}")
@@ -477,4 +477,14 @@ for forbidden in ("s" + "k-" + "live", "BEGIN " + "PRIVATE KEY", "api" + "_key")
         ):
             fail(f"possible secret marker {forbidden!r} in {path}")
 
-print("distribution OK: skill metadata, UI metadata, 15 router presets, 15 executor presets, no obvious secrets")
+catalog = json.loads((ROOT / "references/model-catalog.json").read_text(encoding="utf-8"))
+for model, entry in catalog["models"].items():
+    for effort in entry["efforts"]:
+        name = f"{entry['preset_stem']}_{effort}"
+        preset_path = ROOT / "codex-agents" / (name.replace("_", "-") + ".toml")
+        preset = tomllib.loads(preset_path.read_text(encoding="utf-8"))
+        if (preset.get("name"), preset.get("model"), preset.get("model_reasoning_effort")) != (name, model, effort):
+            fail(f"catalog preset mismatch: {name}")
+        if "immediately send exactly one final reply" not in preset.get("developer_instructions", ""):
+            fail(f"catalog preset lacks finalization contract: {name}")
+print("distribution OK: legacy matrix, current catalog presets, metadata, no obvious secrets")

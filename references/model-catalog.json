@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-10-03",
+  "models": {
+    "gpt-6-astra": {
+      "role": "frontier",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "preset_stem": "codex_auto_model_executor_gpt6_astra",
+      "fallbacks": [
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+        "gpt-5.6-sol"
+      ]
+    },
+    "gpt-6.1-sol": {
+      "role": "strong",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "preset_stem": "codex_auto_model_executor_gpt61_sol",
+      "fallbacks": [
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "gpt-5.6-sol"
+      ]
+    },
+    "gpt-6-sol": {
+      "role": "strong",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "preset_stem": "codex_auto_model_executor_gpt6_sol",
+      "fallbacks": [
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-5.6-sol"
+      ]
+    },
+    "gpt-6-luna": {
+      "role": "efficient",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "preset_stem": "codex_auto_model_executor_gpt6_luna",
+      "fallbacks": [
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+        "gpt-5.6-luna"
+      ]
+    }
+  },
+  "roles": {
+    "frontier": "gpt-6-astra",
+    "strong": "gpt-6.1-sol",
+    "efficient": "gpt-6-luna"
+  },
+  "sources": [
+    "https://developers.openai.com/api/docs/models/gpt-6-astra",
+    "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+  ],
+  "notes": "Model availability must come from the current execution surface, not API documentation. Legacy GPT-5.6 routes remain explicit-compatible. Role choices are project policy, not benchmark equivalence."
+}

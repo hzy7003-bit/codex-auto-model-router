@@ -83,13 +83,14 @@ cp "$ROOT/SKILL.md" "$STAGED_SKILL/SKILL.md"
 cp "$ROOT/agents/openai.yaml" "$STAGED_SKILL/agents/openai.yaml"
 cp "$ROOT/references/"*.md "$STAGED_SKILL/references/"
 cp "$ROOT/references/benchmark-evidence.json" "$STAGED_SKILL/references/benchmark-evidence.json"
+cp "$ROOT/references/model-catalog.json" "$STAGED_SKILL/references/model-catalog.json"
 cp "$ROOT/scripts/"*.py "$STAGED_SKILL/scripts/"
 chmod +x "$STAGED_SKILL/scripts/"*.py
 cp "$ROOT/codex-agents/"*.toml "$STAGED_AGENTS/"
 
 cmp -s "$ROOT/SKILL.md" "$STAGED_SKILL/SKILL.md"
 cmp -s "$ROOT/agents/openai.yaml" "$STAGED_SKILL/agents/openai.yaml"
-for file in "$ROOT/references/"*.md "$ROOT/references/benchmark-evidence.json" "$ROOT/scripts/"*.py; do
+for file in "$ROOT/references/"*.md "$ROOT/references/benchmark-evidence.json" "$ROOT/references/model-catalog.json" "$ROOT/scripts/"*.py; do
   relative=${file#"$ROOT/"}
   cmp -s "$file" "$STAGED_SKILL/$relative"
 done

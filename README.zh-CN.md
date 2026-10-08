@@ -2,7 +2,7 @@
 
 [![Validate](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml/badge.svg)](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml)
 
-**面向 OpenAI Codex 的轻量 GPT-5.6 模型与推理强度路由器。** 推荐 Sol、Terra 或 Luna，以及 low 到 max 推理；优先通过直接工具并发降低开销，并在模型切换收益明确高于协调成本时自动使用对应模型的叶子智能体。
+**面向 OpenAI Codex 的轻量 Astra/Sol/Luna 模型与推理强度路由器。** 推荐 Astra、Sol 或 Luna（保留 GPT-5.6 兼容），以及 low 到 max 推理；优先通过直接工具并发降低开销，并在模型切换收益明确高于协调成本时自动使用对应模型的叶子智能体。
 
 [English](README.md) · [路由反馈](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=routing-feedback.yml) · [问题反馈](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=bug-report.yml)
 
@@ -17,7 +17,7 @@ GPT-5.6 给 Codex 带来了很多有用的模型和推理组合，但每次都�
 └─ 只根据这次任务重新评估
    ├─ 机械、普通、扫描或确定性深度任务 → Luna
    ├─ 明确追求低延迟 → Terra
-   └─ 复杂、高耦合、高歧义或高后果 → Sol
+   └─ 有界复杂任务 → Sol；高歧义、高后果任务 → Astra
       ↓
    建议一致或切换不划算 → 主线程直接完成
    建议不同且路由收益超过开销 → 使用对应模型的叶子智能体
@@ -99,7 +99,7 @@ CLI 默认启用收益门槛委派；`--no-subagents` 是明确退出开关。�
 - 独立安全的工具和进程可以并发执行，不复制模型上下文，也不新增子智能体 UI 条目。
 - `--no-subagents` 可明确禁用委派、复用和代理并发；其他情况下无需额外询问许可。
 - 推荐路由与本轮实际使用的模型被明确分开，不再声称 Skill 已切换主对话模型。
-- Ultra 仍需用户显式开启；只要 Sol、Terra 或 Luna 任一可用，就不回退 GPT-5.5。
+- 显式指定的模型不会静默替换；自动 Astra 降级必须说明。旧严格模式保留 GPT-5.6 家族回退限制。
 
 ## 模型梯度
 
@@ -111,10 +111,12 @@ CLI 默认启用收益门槛委派；`--no-subagents` 是明确退出开关。�
 | 大型确定性深度任务 | Luna / max |
 | 明确追求低延迟 | Terra / high |
 | 有界复杂任务 | Sol / medium |
-| 高歧义、高耦合或高后果 | Sol / high |
-| 复杂推理或验证已有失败 | Sol / xhigh |
+| 高歧义、高耦合或高后果 | Astra / low |
+| 复杂推理或验证已有失败 | Astra / medium |
 
-Ultra 永不自动启用。用户显式使用 Ultra 时，由其原生编排接管，并关闭 Router 并发。只有整个 GPT-5.6 家族都确认不可用时才回退 GPT-5.5。
+Astra 默认 low，自动升级最多 medium；high、xhigh、max 仅在用户显式指定强度时使用。其他模型回退到 Astra 时同样遵守此限制，只指定 Astra 不代表允许更高强度。
+
+当前默认使用 GPT-6 Luna、GPT-6.1 Sol 与 GPT-6 Astra，兼容 GPT-6 Sol 和显式 GPT-5.6 路由；Terra/high 保留为旧版低延迟路线。Ultra 与 GPT-5.5 回退仅属于旧兼容模式。可显式请求“更新模型目录”；只读检查发现新模型时提示审核，不自动改路由、不创建后台定时任务。详见[模型更新说明](references/model-updates.md)。
 
 ## 测评与台账
 

@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model_usage_ledger as ledger
 import route_policy as policy
+import model_catalog as catalog
 
 
 LITE_PROTOCOL = "router-lite-v2"
@@ -63,6 +64,53 @@ AGENT_TYPES = {
     ("gpt-5.6-luna", "xhigh"): "codex_auto_model_executor_luna_xhigh",
     ("gpt-5.6-luna", "max"): "codex_auto_model_executor_luna_max",
 }
+AGENT_TYPES.update({
+    (model, effort): f"{entry['preset_stem']}_{effort}"
+    for model, entry in catalog.MODELS.items() for effort in entry['efforts']
+})
+
+
+def select_lite_route(args, task, current):
+    """Keep historical strict policy intact; map its signals to reviewed roles."""
+    if catalog.LOAD_ERROR:
+        raise ValueError(catalog.LOAD_ERROR)
+    override = task.get("model", args.model)
+    new_model = catalog.normalize(override)
+    selected = policy.select_route(
+        "apply", **{key: task.get(key, getattr(args, key)) for key in (
+            "task_kind", "risk", "size", "ambiguity", "coupling", "verification",
+            "consequence", "prior_failure", "prior_failure_kind", "latency_priority")},
+        model_override=None if new_model else override,
+        effort_override=task.get("effort", args.effort), current=current)
+    route = selected["recommended"]
+    # Explicit legacy IDs remain pinned. The old strict mode never changes.
+    if new_model:
+        route["model"] = new_model
+        route["source"] = "user-override"
+    elif not override and getattr(args, "model_policy", "current") == "current":
+        old = route["model"]
+        if old == "gpt-5.6-sol":
+            role = "frontier" if route["effort"] in ("high", "xhigh", "max") else "strong"
+        else:
+            role = "efficient"
+        route["model"] = catalog.CATALOG["roles"][role]
+        # Preserve the measured legacy latency specialist; no new latency claims.
+        if old == "gpt-5.6-terra":
+            route["model"] = old
+        else:
+            route["source"] = "catalog-policy:" + route["source"]
+    explicit_effort = task.get("effort", args.effort) is not None
+    failed_reasoning = bool(task.get("prior_failure", args.prior_failure)) and task.get(
+        "prior_failure_kind", args.prior_failure_kind) in ("reasoning", "verification")
+    route["effort"] = catalog.automatic_effort(
+        route["model"], route["effort"], explicit_effort, failed_reasoning)
+    if route["model"] in catalog.MODELS and route["effort"] not in catalog.MODELS[route["model"]]["efforts"]:
+        raise ValueError("unsupported catalog reasoning effort; no silent substitution")
+    selected["fallback"] = catalog.resolve(route["model"], route["effort"],
+        task.get("available_models", getattr(args, "available_model", None)), bool(override),
+        explicit_effort=explicit_effort, failed_reasoning=failed_reasoning)
+    selected["execution"] = selected["fallback"]["execution"]
+    return selected
 
 
 class RouterArgumentError(ValueError):
@@ -238,20 +286,20 @@ def project_status(args):
 
 
 def _route_is_sufficient(current, selected):
-    """Return whether the current GPT-5.6 route is an accepted policy fallback."""
+    """Return whether the current route is sufficient for resolved execution."""
     if current.get("status") != "verified":
         return False
     current_model = current.get("model")
     current_effort = current.get("effort")
-    target_model = selected["recommended"]["model"]
-    target_effort = selected["recommended"]["effort"]
-    if current_model not in policy.MODELS:
+    target_model = selected["execution"]["model"]
+    target_effort = selected["execution"]["effort"]
+    if current_model not in (*policy.MODELS, *catalog.MODELS):
         return False
     if current_effort not in EFFORT_RANK or target_effort not in EFFORT_RANK:
         return False
     candidates = [(target_model, target_effort)]
     source = selected["recommended"].get("source", "")
-    if source.startswith("benchmark-prior:"):
+    if target_model in policy.MODELS and source.startswith("benchmark-prior:"):
         lane = source.split(":", 1)[1]
         candidates.extend(policy.LANE_FALLBACK_ROUTES.get(lane, ()))
     return any(
@@ -283,24 +331,11 @@ def _decision(args, task=None, current=None):
             if args.no_runtime_detection
             else policy.detect_current_route(args.sessions_root)
         )
-    selected = policy.select_route(
-        "apply",
-        task_kind=task.get("task_kind", args.task_kind),
-        risk=task.get("risk", args.risk),
-        size=task.get("size", args.size),
-        model_override=task.get("model", args.model),
-        effort_override=task.get("effort", args.effort),
-        current=current,
-        ambiguity=task.get("ambiguity", args.ambiguity),
-        coupling=task.get("coupling", args.coupling),
-        verification=task.get("verification", args.verification),
-        consequence=task.get("consequence", args.consequence),
-        prior_failure=task.get("prior_failure", args.prior_failure),
-        prior_failure_kind=task.get("prior_failure_kind", args.prior_failure_kind),
-        latency_priority=task.get("latency_priority", args.latency_priority),
-    )
-    model = selected["recommended"]["model"]
-    effort = selected["recommended"]["effort"]
+    selected = select_lite_route(args, task, current)
+    # Routing inputs are normalized by select_lite_route.
+    model = selected["execution"]["model"]
+    effort = selected["execution"]["effort"]
+    preferred = dict(selected["recommended"])
     explicit_route = bool(task.get("model", args.model) or task.get("effort", args.effort))
     task_kind = task.get("task_kind", args.task_kind)
     risk = task.get("risk", args.risk)
@@ -316,14 +351,15 @@ def _decision(args, task=None, current=None):
     min_delegate_seconds = int(getattr(args, "min_delegate_seconds", DEFAULT_MIN_DELEGATE_SECONDS))
     if min_delegate_seconds < 0:
         raise ValueError("minimum delegate seconds cannot be negative")
-    current_is_gpt56 = str(current.get("model", "")).startswith("gpt-5.6-")
+    current_is_supported = current.get("model") in (*policy.MODELS, *catalog.MODELS)
     current_is_sufficient = _route_is_sufficient(current, selected)
     subagent_policy = _subagent_policy(args)
     subagents_allowed = subagent_policy["allowed"]
     short_work = estimated_seconds is not None and estimated_seconds < min_delegate_seconds
     local_cost_fast_path = (
         current.get("status") == "verified"
-        and current_is_gpt56
+        and current_is_supported
+        and model is not None
         and not explicit_route
         and not task.get("prior_failure", args.prior_failure)
         and risk != "high"
@@ -370,7 +406,10 @@ def _decision(args, task=None, current=None):
         else:
             reason = "startup-aware-local-fast-path"
     else:
-        if ultra:
+        if model is None:
+            action = "local"
+            reason = selected["fallback"]["reason"]
+        elif ultra:
             action = "native-ultra"
             reason = selected["recommended"]["source"]
         elif matched:
@@ -402,6 +441,8 @@ def _decision(args, task=None, current=None):
             execution_reason = "current-route-already-matches"
         elif reason == "subagents-disabled-by-user":
             execution_reason = "main-thread-model-fixed-and-subagents-disabled"
+        elif model is None:
+            execution_reason = reason
         else:
             execution_reason = (
                 "main-model-fixed-leaf-startup-cost-exceeds-benefit"
@@ -420,13 +461,17 @@ def _decision(args, task=None, current=None):
             None if agent_type is None else {
                 "agent_type": agent_type,
                 "fork_turns": "none",
+                "task_name_pattern": "^[a-z0-9][a-z0-9_]{0,47}$",
+                "validate_task_name_before_spawn": True,
                 "retry_on_contract_error": False,
                 "request_escalated_permissions": False,
                 "return_limited_result_on_permission_boundary": True,
                 "finalize_immediately_after_acceptance": True,
             }
         ),
-        "recommended_route": {"model": model, "effort": effort},
+        "recommended_route": {"model": preferred["model"], "effort": preferred["effort"]},
+        "execution_route": selected["execution"],
+        "fallback": selected["fallback"],
         "reason": reason,
         "execution_reason": execution_reason,
         "current": current,
@@ -652,12 +697,14 @@ def decide(args):
         candidate = next((
             item for item in candidates
             if (item["model"], item["effort"]) == (
-                result["recommended_route"]["model"],
-                result["recommended_route"]["effort"],
+                result["execution_route"]["model"],
+                result["execution_route"]["effort"],
             )
         ), None)
         if candidate is not None:
             result["action"] = "reuse"
+            result["model"] = candidate["model"]
+            result["effort"] = candidate["effort"]
             result["reuse_target"] = candidate["agent_task_name"]
             result["reason"] = "safe-same-request-reuse"
             result["execution_reason"] = "compatible-leaf-reuse-clears-overhead"
@@ -699,7 +746,7 @@ def _scopes_overlap(left, right):
 
 def _route_key(item):
     route = item["route"]
-    recommended = route.get("recommended_route") or route
+    recommended = route.get("execution_route") or route.get("recommended_route") or route
     return recommended["model"], recommended["effort"]
 
 
@@ -762,10 +809,10 @@ def _reuse_candidates(value, max_reuses, identity):
             raise ValueError("reuse candidate requires a content-based agent_task_name")
         if name in seen:
             raise ValueError("reuse candidate names must be unique")
-        model = policy.normalize_model(item.get("model"))
+        model = catalog.normalize(item.get("model")) or policy.normalize_model(item.get("model"))
         effort = policy.normalize_effort(item.get("effort"))
-        if model not in policy.MODELS or effort not in EFFORT_RANK:
-            raise ValueError("reuse candidate requires a supported GPT-5.6 route")
+        if model not in (*policy.MODELS, *catalog.MODELS) or effort not in EFFORT_RANK:
+            raise ValueError("reuse candidate requires a supported route")
         followups_used = item.get("followups_used", 0)
         if not isinstance(followups_used, int) or followups_used < 0:
             raise ValueError("reuse candidate followups_used must be a non-negative integer")
@@ -970,6 +1017,8 @@ def plan(args):
     worthwhile = [
         item for item in ready
         if item["estimated_seconds"] >= args.min_parallel_seconds
+        and item["route"]["execution_route"]["model"] is not None
+        and not item["route"]["native_ultra"]
     ]
     independent_scopes = True
     seen_scopes = []
@@ -1159,6 +1208,8 @@ def record(args):
 
 
 def _add_route_arguments(parser):
+    parser.add_argument("--model-policy", choices=("current", "legacy"), default="current")
+    parser.add_argument("--available-model", action="append", help="Complete observed execution surface; omit if unknown")
     parser.add_argument("--task-kind", choices=("mechanical", "ordinary", "complex"), default="ordinary")
     parser.add_argument(
         "--risk", type=_risk_value, choices=("low", "normal", "high"), default="normal"

@@ -2,7 +2,7 @@
 
 [![Validate](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml/badge.svg)](https://github.com/orange-the-weak/codex-auto-model-router/actions/workflows/validate.yml)
 
-**A lightweight GPT-5.6 model and reasoning router for OpenAI Codex.** It recommends Sol, Terra, or Luna and low through max reasoning, prefers low-overhead direct tool concurrency, and automatically uses a model-specific leaf when the route benefit is clearly larger than its overhead.
+**A lightweight Astra/Sol/Luna model and reasoning router for OpenAI Codex.** It recommends Astra, Sol, or Luna (with GPT-5.6 compatibility) and low through max reasoning, prefers low-overhead direct tool concurrency, and automatically uses a model-specific leaf when the route benefit is clearly larger than its overhead.
 
 [简体中文](README.zh-CN.md) · [Routing feedback](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=routing-feedback.yml) · [Bug report](https://github.com/orange-the-weak/codex-auto-model-router/issues/new?template=bug-report.yml)
 
@@ -17,7 +17,7 @@ Request
 └─ Re-evaluate the task itself
    ├─ Mechanical, ordinary, scan, or deterministic deep work → Luna
    ├─ Explicit latency priority → Terra
-   └─ Complex, coupled, ambiguous, or consequential → Sol
+   └─ Bounded complex → Sol; highly ambiguous or consequential → Astra
       ↓
    Recommendation matches or switching does not pay → run locally
    Recommendation differs and route benefit clears overhead → use that model's leaf agent
@@ -99,7 +99,7 @@ The CLI enables benefit-gated subagents by default. `--no-subagents` is the expl
 - Independent safe tools and processes may run concurrently without extra model contexts or child-agent UI entries.
 - `--no-subagents` explicitly disables delegate, reuse, and agent-parallel plans; no permission prompt is otherwise required.
 - Recommendations are clearly separated from the current task's observed model.
-- Ultra remains opt-in, and fallback stays inside GPT-5.6 while any Sol, Terra, or Luna route is available.
+- Explicit models remain pinned; automatic Astra fallback is disclosed. Legacy strict mode retains its GPT-5.6 family guard.
 
 ## Model gradient
 
@@ -111,10 +111,12 @@ The CLI enables benefit-gated subagents by default. `--no-subagents` is the expl
 | Large deterministic deep work | Luna / max |
 | Explicit latency priority | Terra / high |
 | Bounded complex work | Sol / medium |
-| High ambiguity, coupling, or consequence | Sol / high |
-| Failed complex reasoning or verification | Sol / xhigh |
+| High ambiguity, coupling, or consequence | Astra / low |
+| Failed complex reasoning or verification | Astra / medium |
 
-Ultra is never automatic. Explicit Ultra uses its native orchestration and disables Router-managed parallelism. GPT-5.5 is used only after the complete GPT-5.6 family is proven unavailable.
+Astra defaults to low; automatic escalation stops at medium. High, xhigh and max require an explicit user effort request. This also applies when another model falls back to Astra; choosing Astra alone does not opt into a higher effort.
+
+Current defaults: GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra; GPT-6 Sol and explicit GPT-5.6 routes remain compatible. Terra/high stays the legacy latency specialist. Ultra and GPT-5.5 fallback are legacy-mode features only. See [model updates](references/model-updates.md) for explicit updates, availability checks and read-only change hints. No background monitor or automatic catalog rewrite is installed.
 
 ## Evidence and history
 

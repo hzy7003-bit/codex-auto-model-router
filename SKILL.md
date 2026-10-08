@@ -1,6 +1,6 @@
 ---
 name: codex-auto-model-router
-description: Recommend and execute an efficient GPT-5.6 Sol, Terra, or Luna route with low-through-max reasoning for Codex project work. Prefer bounded direct tool concurrency, but automatically create or reuse a model-specific leaf agent when route-fit benefit clearly exceeds startup and aggregation overhead; no extra user permission is required. Use for code changes, tests, reviews, routed implementation, model recommendations, usage queries, retuning, and requests to disable, exit, restore, or check this Skill for the current project. Use the legacy strict state machine only when the user explicitly requests strict ledger auditing. Never auto-select Ultra or create a new top-level Codex task.
+description: Recommend and execute an efficient Astra, Sol, or Luna route with GPT-5.6 compatibility with low-through-max reasoning for Codex project work. Prefer bounded direct tool concurrency, but automatically create or reuse a model-specific leaf agent when route-fit benefit clearly exceeds startup and aggregation overhead; no extra user permission is required. Use for code changes, tests, reviews, routed implementation, model recommendations, usage queries, retuning, and requests to disable, exit, restore, or check this Skill for the current project. Use the legacy strict state machine only when the user explicitly requests strict ledger auditing. Never auto-select Ultra or create a new top-level Codex task.
 ---
 
 # Codex Auto Model Router
@@ -27,7 +27,7 @@ After a successful exit, stop all Router classification, notices, delegation, re
 2. Run `python3 scripts/router_lite.py decide ... --estimated-seconds <n>` once. Use only the documented enum values; compatibility aliases are fail-open protection, not preferred input. Pass `--no-subagents` only when the user explicitly disables child agents. Treat `recommended_route` as advice until a returned `delegate` or `reuse` action is actually dispatched and observed.
 3. Show one line before execution in the language of the user's current request. Keep English as the only canonical template and translate it naturally when the request uses another language:
    - Local: `Codex auto route | Task: <name> | Recommendation: <model>/<effort> | Execution: current coordinator <model>/<effort> | No automatic switch: <execution_reason>`
-   - Delegated: `Codex auto route | Task: <name> | Recommendation: <model>/<effort> | Execution: leaf agent <model>/<effort> | Switch reason: <execution_reason>`
+   - Delegated: `Codex auto route | Task: <name> | Recommendation: <model>/<effort> | Planned executor: leaf agent <model>/<effort> | Switch reason: <execution_reason>`
    - Render `main-model-fixed-leaf-startup-cost-exceeds-benefit` as `main conversation model is fixed; leaf startup cost exceeds expected benefit`. Translate that explanation instead of exposing the machine token.
 4. Execute by action:
    - `local`: continue in the coordinator. Do not claim that the recommended model or effort actually ran.
@@ -43,7 +43,7 @@ The Router still evaluates every applicable request. It may report `tiny-local-f
 
 ## Model gradient
 
-Use the offline policy in `route_policy.py`; task evidence and explicit user overrides win.
+Use the reviewed `model-catalog.json` through `router_lite.py`; task evidence and explicit user overrides win. Read [model-updates.md](references/model-updates.md) for availability checks, explicit catalog updates, and non-blocking change hints. Legacy strict mode retains `route_policy.py` and GPT-5.6 evidence.
 
 - Luna/medium: deterministic mechanical work.
 - Luna/high: ordinary bounded implementation and normal research.
@@ -52,10 +52,14 @@ Use the offline policy in `route_policy.py`; task evidence and explicit user ove
 - Terra/high: explicit latency priority.
 - Sol/low: explicit user override or compatibility testing only; never automatic.
 - Sol/medium: bounded complex work.
-- Sol/high: high ambiguity, coupling, or consequence.
-- Sol/xhigh: classified reasoning/verification failure on complex work or explicit choice.
+- Astra/low: high ambiguity, coupling, or consequence; default when Astra is requested without an effort.
+- Astra/medium: classified reasoning/verification failure. Astra high, xhigh and max require an explicit user effort request, including fallback and reuse.
 
-Never select Ultra automatically. Keep fallback inside GPT-5.6 whenever any GPT-5.6 executor is available. GPT-5.5 is allowed only after the complete GPT-5.6 family is proven unavailable, and that fallback must be disclosed once.
+Current Lite defaults are GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra. Preserve explicit model choices; unavailable explicit models require local execution with a visible limitation, not silent substitution. Automatic Astra fallback must disclose capability degradation. Never select Ultra automatically; native Ultra and the GPT-5.5 family guard belong only to legacy compatibility mode.
+
+## Model catalog updates
+
+For “update model catalog” / “更新模型目录”, follow [model-updates.md](references/model-updates.md): verify official capabilities and the actual execution surface, preserve explicit pins, update catalog/presets/tests together, and do not install or publish without authorization. On the first applicable use, compare an already-exposed complete model list with `model_catalog.py`; hint once for a distinct change, never auto-promote a model or block work to obtain the list. There is no background polling. Before delegation verify the returned preset is available; say “Planned executor” until dispatch is acknowledged, then report observed execution.
 
 ## Direct tool concurrency
 

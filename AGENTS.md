@@ -13,7 +13,7 @@
 - Before the parent final response after any subagent use, stop dispatch, disable reuse, clear the current-request reuse registry, refresh the current task tree, interrupt every optional, superseded, or otherwise unneeded child still genuinely `running`, and refresh once more. If a required result remains necessary, wait for it or complete it locally without duplicate writes before interrupting that child. Finalize only after all children owned by this request are terminal. This applies only to the current task tree; no collaboration tool deletes completed child-agent UI history, so never claim that historical cards were cleared.
 - Never make hashes, runtime state, environment markers, capability probes, or usage ledgers prerequisites for ordinary work. Record only observed execution metadata; ledger failure is non-blocking and normally invisible.
 - Enter the legacy strict state machine only when the user explicitly requests strict routing, replay protection, strict ledger auditing, or a reproducible routing experiment. Do not silently use `router_runtime.py` for normal work.
-- Never auto-select Ultra. Explicit Ultra disables Router-managed parallelism. Stay inside GPT-5.6 while any GPT-5.6 executor is available; disclose GPT-5.5 fallback once only after the complete GPT-5.6 family is proven unavailable.
+- Current Lite routing uses the reviewed model catalog with Astra as frontier, Sol as strong and Luna as efficient. Preserve explicit pins; disclose automatic Astra degradation. Legacy strict mode and historical GPT-5.6 benchmarks remain unchanged. Follow references/model-updates.md for catalog updates; never auto-promote newly discovered models. Never auto-select Ultra.
 
 ## Editing and verification
 

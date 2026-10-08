@@ -28,6 +28,7 @@ def expected_payload_files():
         [Path("SKILL.md"), Path("agents/openai.yaml")]
         + [Path("references") / path.name for path in (ROOT / "references").glob("*.md")]
         + [Path("references/benchmark-evidence.json")]
+        + [Path("references/model-catalog.json")]
         + [Path("scripts") / path.name for path in (ROOT / "scripts").glob("*.py")]
     )
 
