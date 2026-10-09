@@ -104,7 +104,7 @@ class ProfileTests(unittest.TestCase):
 
     def test_strict_disabled_skips_invalid_profile(self):
         self.write(self.project_file, 'invalid = [')
-        self.write(self.project / ".codex/config.toml", '[[skills.config]]\npath="' + str(Path(LITE.__file__).resolve().parents[1] / "SKILL.md") + '"\nenabled=false\n')
+        self.write(self.project / ".codex/config.toml", '[[skills.config]]\npath=' + json.dumps(str(Path(LITE.__file__).resolve().parents[1] / "SKILL.md")) + '\nenabled=false\n')
         out = io.StringIO()
         with patch.dict(os.environ, self.env), patch("sys.argv", ["route_policy.py", "--mode", "apply", "--repository", str(self.project), "--no-runtime-detection"]), redirect_stdout(out):
             POLICY.main()
@@ -127,7 +127,7 @@ class ProfileTests(unittest.TestCase):
         with patch.dict(os.environ, self.env), redirect_stdout(out):
             LITE.main(["decide", "--repository", str(self.project), "--no-runtime-detection"])
         self.assertEqual(json.loads(out.getvalue())["action"], "local")
-        self.write(self.project / ".codex/config.toml", '[[skills.config]]\npath="' + str(Path(LITE.__file__).resolve().parents[1] / "SKILL.md") + '"\nenabled=false\n')
+        self.write(self.project / ".codex/config.toml", '[[skills.config]]\npath=' + json.dumps(str(Path(LITE.__file__).resolve().parents[1] / "SKILL.md")) + '\nenabled=false\n')
         out = io.StringIO()
         with patch.dict(os.environ, self.env), redirect_stdout(out):
             LITE.main(["decide", "--repository", str(self.project), "--no-runtime-detection"])
