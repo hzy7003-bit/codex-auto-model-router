@@ -43,6 +43,8 @@ The Router still evaluates every applicable request. It may report `tiny-local-f
 
 ## Model gradient
 
+Use the configured `balanced` (default), `economy`, or `quality` profile. Read [routing-profiles.md](references/routing-profiles.md) for profile commands, lane overrides, precedence, and explicit Astra effort settings. Respect project opt-out before reading routing configuration. Never change a profile unless the user requests it. The optional global prompt hook is installed only with `--install-hook` / `-InstallHook`; it respects project opt-out and cannot switch the coordinator model.
+
 Use the reviewed `model-catalog.json` through `router_lite.py`; task evidence and explicit user overrides win. Read [model-updates.md](references/model-updates.md) for availability checks, explicit catalog updates, and non-blocking change hints. Legacy strict mode retains `route_policy.py` and GPT-5.6 evidence.
 
 - Luna/medium: deterministic mechanical work.

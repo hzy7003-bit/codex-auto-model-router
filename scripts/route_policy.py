@@ -12,6 +12,8 @@ import unicodedata
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
+import model_catalog as catalog
+import routing_profiles as profiles
 
 
 MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
@@ -271,6 +273,9 @@ def _latency_priority(value=None):
 def normalize_model(value):
     if value is None:
         return None
+    current_model = catalog.normalize(value)
+    if current_model:
+        return current_model
     normalized = MODEL_ALIASES.get(value.strip().lower())
     if normalized is None:
         raise ValueError(f"unsupported model: {value}")
@@ -290,6 +295,8 @@ def _validate_ultra_route(model, effort, *, explicit, mode):
     """Keep native Ultra opt-in and outside Router-managed orchestration."""
     if effort != "ultra":
         return
+    if model in catalog.MODELS:
+        raise ValueError("current catalog models do not expose native ultra")
     if not explicit:
         raise ValueError("ultra requires an explicit user effort override")
     if mode != "apply":
@@ -304,7 +311,7 @@ def normalize_available_model(value):
     key = value.strip().lower()
     if key in ("gpt-5.5", "gpt5.5"):
         return GPT55_MODEL
-    return MODEL_ALIASES.get(key)
+    return catalog.normalize(key) or MODEL_ALIASES.get(key)
 
 
 def is_gpt56_model(value):
@@ -315,6 +322,11 @@ def resolve_family_fallback(target_model, target_effort, available_models=None):
     """Resolve pre-execution availability without leaving GPT-5.6 prematurely."""
     target_model = normalize_model(target_model)
     target_effort = normalize_effort(target_effort)
+    if target_model in catalog.MODELS:
+        if target_effort not in catalog.MODELS[target_model]["efforts"]:
+            raise ValueError("unsupported catalog reasoning effort")
+        return catalog.resolve(target_model, target_effort, available_models,
+                               explicit_effort=True)
     _validate_ultra_route(
         target_model, target_effort, explicit=target_effort == "ultra", mode="apply"
     )
@@ -490,7 +502,7 @@ def recommended_route(
     mode, task_kind, risk, size, report_model=None, report_effort=None,
     ambiguity=None, coupling=None, verification=None, consequence=None,
     prior_failure=False, evidence=None, latency_priority=None,
-    prior_failure_kind=None,
+    prior_failure_kind=None, routing_config=None,
 ):
     if mode == "apply" and (report_model is not None or report_effort is not None):
         if report_model is None or report_effort is None:
@@ -576,6 +588,14 @@ def recommended_route(
     else:
         lane = "ordinary_default"
     selected = lanes[lane]
+    if routing_config is not None:
+        resolved_lane = profiles.lane_for("policy:" + lane, risk, signals["consequence"])
+        selected = dict(routing_config["routes"][resolved_lane])
+        selected["effort"] = catalog.automatic_effort(
+            selected["model"], selected["effort"],
+            routing_config["route_sources"][resolved_lane] in ("global", "project"),
+            signals["prior_failure"] and failure_kind in ("reasoning", "verification"))
+        return selected["model"], selected["effort"], "profile-policy:" + resolved_lane
     source = (
         "benchmark-prior" if evidence.get("status") == "active"
         else "deterministic-policy"
@@ -617,6 +637,7 @@ def select_route(
     evidence_path=None,
     latency_priority=None,
     prior_failure_kind=None,
+    routing_config=None,
 ):
     report_model = normalize_model(report_model)
     report_effort = normalize_effort(report_effort)
@@ -624,7 +645,7 @@ def select_route(
     target_model, target_effort, source = recommended_route(
         mode, task_kind, risk, size, report_model, report_effort,
         ambiguity, coupling, verification, consequence, prior_failure, evidence,
-        latency_priority, prior_failure_kind,
+        latency_priority, prior_failure_kind, routing_config,
     )
 
     explicit_override = model_override is not None or effort_override is not None
@@ -636,6 +657,9 @@ def select_route(
             target_model = "gpt-5.6-sol"
     if explicit_override:
         source = "user-override"
+    target_effort = catalog.automatic_effort(
+        target_model, target_effort, effort_override is not None or report_effort is not None,
+        prior_failure and prior_failure_kind in ("reasoning", "verification")) if routing_config is None or source == "user-override" else target_effort
     _validate_ultra_route(
         target_model, target_effort, explicit=explicit_override, mode=mode
     )
@@ -990,8 +1014,8 @@ def _validate_parallel_segment_schema(segments, require_semantic_id=False):
         if segment.get("merge_group") is not None:
             _merge_group(segment.get("merge_group"), segment_id)
 
-        if segment.get("model") not in MODELS:
-            raise ValueError(f"segment {segment_id} has invalid GPT-5.6 model")
+        if segment.get("model") not in (*MODELS, *catalog.MODELS):
+            raise ValueError(f"segment {segment_id} has invalid routing model")
         if segment.get("effort") not in ROUTED_EFFORTS:
             raise ValueError(f"segment {segment_id} has invalid reasoning effort")
         if segment.get("work_estimate") not in ("short", "normal", "long"):
@@ -1402,7 +1426,7 @@ def plan_parallel_segments(
     report_model=None, report_effort=None, max_segments=None, max_switches=None,
     max_parallelism=None, runtime_max_threads=None, runtime_total_slots=None,
     runtime_running_workers=0, coordinator_slots=DEFAULT_COORDINATOR_SLOTS,
-    evidence_path=None, scope_root=None,
+    evidence_path=None, scope_root=None, routing_config=None,
 ):
     """Create a dependency-aware, wait-any Apply plan without executing it."""
     if not isinstance(raw_segments, list) or not raw_segments:
@@ -1484,6 +1508,7 @@ def plan_parallel_segments(
             [sanitized], current=current, model_override=model_override,
             effort_override=effort_override, report_model=report_model,
             report_effort=report_effort, evidence_path=evidence_path,
+            routing_config=routing_config,
         )["segments"][0]
         single.pop("attempt_id", None)
         single["depends_on"] = list(dict.fromkeys(dependencies))
@@ -2047,6 +2072,7 @@ def plan_apply_segments(
     max_segments=None,
     max_switches=None,
     evidence_path=None,
+    routing_config=None,
 ):
     """Validate and route a bounded, linear Apply segment plan."""
     if not isinstance(raw_segments, list) or not raw_segments:
@@ -2134,6 +2160,7 @@ def plan_apply_segments(
             prior_failure=signals["prior_failure"], evidence=evidence,
             latency_priority=latency_priority,
             prior_failure_kind=prior_failure_kind,
+            routing_config=routing_config,
         )
         segment_model = normalize_model(raw.get("model"))
         segment_effort = normalize_effort(raw.get("effort"))
@@ -2161,6 +2188,10 @@ def plan_apply_segments(
             source = "user-override"
         elif route_source == "report" or report_default_model:
             source = "report"
+        if target_model == "gpt-6-astra" and source in ("user-override", "report"):
+            target_effort = catalog.automatic_effort(target_model, target_effort,
+                bool(global_effort or segment_effort or report_default_effort),
+                signals["prior_failure"] and prior_failure_kind in ("reasoning", "verification"))
         _validate_ultra_route(
             target_model, target_effort, explicit=explicit, mode="apply"
         )
@@ -2292,6 +2323,8 @@ def plan_apply_segments(
 
 def parser():
     root = argparse.ArgumentParser()
+    root.add_argument("--profile", choices=tuple(profiles.ROUTING_PROFILES))
+    root.add_argument("--repository", type=Path, default=Path.cwd())
     root.add_argument("--inspect-current", action="store_true")
     root.add_argument("--resolve-fallback", action="store_true")
     root.add_argument("--target-model")
@@ -2429,6 +2462,10 @@ def main():
         return
     if args.mode is None:
         raise SystemExit("--mode is required unless --inspect-current is used")
+    from router_lite import _project_skill_state
+    if not _project_skill_state(args.repository)["enabled"]:
+        print(json.dumps({"action": "disabled"}, sort_keys=True))
+        return
     if args.segments_json is None and (
         args.max_segments is not None or args.max_switches is not None
         or args.parallel or args.max_parallelism is not None or args.runtime_max_threads is not None
@@ -2471,6 +2508,7 @@ def main():
                 max_segments=args.max_segments,
                 max_switches=args.max_switches,
                 evidence_path=args.evidence_path,
+                routing_config=profiles.resolve_routing_config(args.repository, args.profile),
             )
             if planner is plan_parallel_segments:
                 planner_options["max_parallelism"] = args.max_parallelism
@@ -2506,6 +2544,7 @@ def main():
             args.evidence_path,
             args.latency_priority,
             args.prior_failure_kind,
+            profiles.resolve_routing_config(args.repository, args.profile),
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

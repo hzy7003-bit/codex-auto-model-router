@@ -1,4 +1,5 @@
 import filecmp
+import json
 import os
 import shutil
 import subprocess
@@ -41,14 +42,16 @@ class InstallationTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def install(self, extra_environment=None, check=True, installer_root=ROOT):
+    def install(self, extra_environment=None, check=True, installer_root=ROOT, extra_arguments=()):
         environment = os.environ | {"CODEX_HOME": str(self.codex_home)}
         if extra_environment:
             environment.update(extra_environment)
         if sys.platform == "win32":
             command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer_root / "install.ps1")]
+            if "--install-hook" in extra_arguments:
+                command.append("-InstallHook")
         else:
-            command = ["sh", str(installer_root / "install.sh")]
+            command = ["sh", str(installer_root / "install.sh"), *extra_arguments]
         result = subprocess.run(
             command,
             cwd=installer_root,
@@ -146,12 +149,73 @@ class InstallationTests(unittest.TestCase):
     def test_clean_and_repeated_install_has_exact_payload_and_all_presets(self):
         self.install()
         self.assert_exact_payload()
+        self.assertFalse((self.codex_home / "hooks.json").exists())
         agents = self.codex_home / "agents"
         self.assertEqual(sorted(path.name for path in agents.glob("codex-auto-model-*.toml")), list(PRESETS))
         self.assert_no_install_residue()
         self.install()
         self.assert_exact_payload()
         self.assertEqual(sorted(path.name for path in agents.glob("codex-auto-model-*.toml")), list(PRESETS))
+
+    def test_opt_in_hook_install_preserves_other_hooks_and_is_repeatable_with_spaces_in_path(self):
+        self.codex_home = Path(self.temp_dir.name) / "codex home"
+        hooks_path = self.codex_home / "hooks.json"
+        hooks_path.parent.mkdir(parents=True)
+        original = {
+            "description": "keep this file",
+            "hooks": {
+                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "existing"}]}],
+                "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "another-handler"}]}],
+            },
+        }
+        hooks_path.write_text(json.dumps(original, indent=2) + "\n", encoding="utf-8")
+
+        result = self.install(extra_arguments=("--install-hook",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = json.loads(hooks_path.read_text(encoding="utf-8"))
+        self.assertEqual(installed["description"], original["description"])
+        self.assertEqual(installed["hooks"]["PreToolUse"], original["hooks"]["PreToolUse"])
+        prompt_handlers = [
+            handler
+            for group in installed["hooks"]["UserPromptSubmit"]
+            for handler in group.get("hooks", [])
+        ]
+        router_handlers = [handler for handler in prompt_handlers if "user_prompt_submit.py" in handler.get("command", "")]
+        self.assertEqual(len(router_handlers), 1)
+        self.assertEqual(router_handlers[0]["timeout"], 5)
+        self.assertIn("'", router_handlers[0]["command"])
+        windows_command = router_handlers[0]["commandWindows"]
+        self.assertTrue(windows_command.startswith(('python "', '"')))
+        self.assertIn('user_prompt_submit.py"', windows_command)
+
+        once_installed = hooks_path.read_bytes()
+        self.install(extra_arguments=("--install-hook",))
+        self.assertEqual(hooks_path.read_bytes(), once_installed)
+
+    def test_hook_registration_failure_restores_existing_hooks_json(self):
+        hooks_path = self.codex_home / "hooks.json"
+        hooks_path.parent.mkdir(parents=True)
+        original = b'{"hooks":{"PreToolUse":[]},"description":"preserve bytes"}\n'
+        hooks_path.write_bytes(original)
+        result = self.install(
+            {"CODEX_AUTO_MODEL_ROUTER_INSTALL_FAIL_AT": "after-hook-install"},
+            check=False,
+            extra_arguments=("--install-hook",),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(hooks_path.read_bytes(), original)
+        self.assertFalse((self.codex_home / "skills" / "codex-auto-model-router").exists())
+        self.assert_no_install_residue()
+
+    def test_hook_registration_failure_removes_new_hooks_json(self):
+        result = self.install(
+            {"CODEX_AUTO_MODEL_ROUTER_INSTALL_FAIL_AT": "after-hook-install"},
+            check=False,
+            extra_arguments=("--install-hook",),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.codex_home / "hooks.json").exists())
+        self.assert_no_install_residue()
 
     def test_stale_owned_files_are_removed_without_touching_unrelated_agent(self):
         skill = self.codex_home / "skills" / "codex-auto-model-router"
@@ -266,6 +330,8 @@ class InstallationTests(unittest.TestCase):
             "$legacySkillBackup",
             "Test-FileContentEqual",
             "[IO.File]::ReadAllBytes",
+            "[switch]$InstallHook",
+            "after-hook-install",
         ):
             self.assertIn(required, installer)
         self.assertNotIn("project-model-*.toml", installer)
@@ -284,6 +350,28 @@ class InstallationTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX dangling-symlink semantics")
+    def test_powershell_hook_install_preserves_dangling_hooks_symlink(self):
+        powershell = shutil.which("pwsh") or shutil.which("powershell")
+        if not powershell:
+            self.skipTest("PowerShell is not installed")
+        self.codex_home.mkdir(parents=True)
+        hooks_path = self.codex_home / "hooks.json"
+        hooks_path.symlink_to("missing-hooks.json")
+        environment = os.environ | {"CODEX_HOME": str(self.codex_home)}
+        result = subprocess.run(
+            [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "install.ps1"), "-InstallHook"],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(hooks_path.is_symlink())
+        self.assertEqual(os.readlink(hooks_path), "missing-hooks.json")
+        self.assert_no_install_residue()
 
 
 if __name__ == "__main__":

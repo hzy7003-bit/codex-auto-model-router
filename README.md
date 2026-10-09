@@ -46,7 +46,19 @@ cd codex-auto-model-router
 ./install.sh
 ```
 
-Restart Codex after installation.
+Restart Codex after installation. To also install the global prompt hook, opt in with `./install.sh --install-hook` (PowerShell: `./install.ps1 -InstallHook`). The hook asks Codex to apply the Skill when relevant; it does not change the active conversation's model. Use `/hooks` to review, trust, or disable it, then restart Codex.
+
+## Routing profiles
+
+`balanced` preserves the default routes. `economy` favors Luna for more bounded work; `quality` favors Sol for ordinary work and scans. All built-in profiles keep Astra at low, or medium after a reasoning/verification failure. Higher Astra effort requires an explicit effort override (including a configured lane override).
+
+```bash
+python3 scripts/router_lite.py profile-show --repository .
+python3 scripts/router_lite.py profile-set quality --scope project --repository .
+python3 scripts/router_lite.py decide --profile economy --repository .
+```
+
+See [routing profiles](references/routing-profiles.md) for global settings, TOML lane overrides, and precedence. Profiles and the optional prompt hook are adapted from [David Soff's contributions](https://github.com/Davidsoff) in PRs #4 and #6.
 
 ## Exit for one project
 

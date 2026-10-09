@@ -46,7 +46,19 @@ cd codex-auto-model-router
 ./install.sh
 ```
 
-安装后重启 Codex。
+安装后重启 Codex。若还要安装全局提示钩子，请使用 `./install.sh --install-hook`（PowerShell：`./install.ps1 -InstallHook`）。该钩子会提示 Codex 在适用时使用此 Skill，但不会更改当前对话的模型。使用 `/hooks` 审核、信任或停用钩子，然后重启 Codex。
+
+## 路由配置档
+
+`balanced` 保留默认路由；`economy` 让更多有界任务使用 Luna；`quality` 让普通任务和扫描优先使用 Sol。所有内置配置中，Astra 默认 low，推理或验证失败后可升至 medium；更高强度必须显式指定，包括用户配置的任务档位覆盖。
+
+```bash
+python3 scripts/router_lite.py profile-show --repository .
+python3 scripts/router_lite.py profile-set quality --scope project --repository .
+python3 scripts/router_lite.py decide --profile economy --repository .
+```
+
+全局设置、TOML 档位覆盖和优先级见[路由配置说明](references/routing-profiles.md)。配置档和可选提示钩子改编自 [David Soff](https://github.com/Davidsoff) 的 PR #4 与 #6。
 
 ## 退出当前项目
 

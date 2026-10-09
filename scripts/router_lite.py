@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model_usage_ledger as ledger
 import route_policy as policy
 import model_catalog as catalog
+import routing_profiles as profiles
 
 
 LITE_PROTOCOL = "router-lite-v2"
@@ -81,12 +82,25 @@ def select_lite_route(args, task, current):
             "task_kind", "risk", "size", "ambiguity", "coupling", "verification",
             "consequence", "prior_failure", "prior_failure_kind", "latency_priority")},
         model_override=None if new_model else override,
-        effort_override=task.get("effort", args.effort), current=current)
+        effort_override=None, current=current)
     route = selected["recommended"]
+    config = getattr(args, "routing_config", None)
+    if config is None and getattr(args, "model_policy", "current") == "current":
+        config = profiles.resolve_routing_config(
+            getattr(args, "repository", None), getattr(args, "profile", None))
+    lane = profiles.lane_for(route["source"], task.get("risk", args.risk),
+                             task.get("consequence", args.consequence))
+    configured_effort = False
     # Explicit legacy IDs remain pinned. The old strict mode never changes.
     if new_model:
         route["model"] = new_model
         route["source"] = "user-override"
+    elif not override and config is not None and lane in config["routes"]:
+        route.update(config["routes"][lane])
+        route["source"] = "profile-policy:" + lane
+        configured_effort = config["route_sources"][lane] in ("global", "project")
+        if task.get("effort", args.effort) is not None:
+            route["effort"] = policy.normalize_effort(task.get("effort", args.effort))
     elif not override and getattr(args, "model_policy", "current") == "current":
         old = route["model"]
         if old == "gpt-5.6-sol":
@@ -99,17 +113,23 @@ def select_lite_route(args, task, current):
             route["model"] = old
         else:
             route["source"] = "catalog-policy:" + route["source"]
-    explicit_effort = task.get("effort", args.effort) is not None
+    if task.get("effort", args.effort) is not None:
+        route["effort"] = policy.normalize_effort(task.get("effort", args.effort))
+        if route["effort"] == "ultra" and not override:
+            route["model"] = "gpt-5.6-sol"
+    explicit_effort = task.get("effort", args.effort) is not None or configured_effort
     failed_reasoning = bool(task.get("prior_failure", args.prior_failure)) and task.get(
         "prior_failure_kind", args.prior_failure_kind) in ("reasoning", "verification")
     route["effort"] = catalog.automatic_effort(
         route["model"], route["effort"], explicit_effort, failed_reasoning)
+    policy._validate_ultra_route(route["model"], route["effort"], explicit=explicit_effort, mode="apply")
     if route["model"] in catalog.MODELS and route["effort"] not in catalog.MODELS[route["model"]]["efforts"]:
         raise ValueError("unsupported catalog reasoning effort; no silent substitution")
     selected["fallback"] = catalog.resolve(route["model"], route["effort"],
         task.get("available_models", getattr(args, "available_model", None)), bool(override),
         explicit_effort=explicit_effort, failed_reasoning=failed_reasoning)
     selected["execution"] = selected["fallback"]["execution"]
+    selected["routing_profile"] = config["profile"] if config else "legacy"
     return selected
 
 
@@ -454,6 +474,7 @@ def _decision(args, task=None, current=None):
     return {
         "protocol": LITE_PROTOCOL,
         "action": action,
+        "routing_profile": selected["routing_profile"],
         "model": actual_model,
         "effort": actual_effort,
         "agent_type": agent_type,
@@ -654,6 +675,9 @@ def decide(args):
             sort_keys=True,
         ))
         return
+    if getattr(args, "model_policy", "current") == "current":
+        args.routing_config = profiles.resolve_routing_config(
+            getattr(args, "repository", None), getattr(args, "profile", None))
     result = _decision(args)
     max_reuses = int(getattr(args, "max_executor_reuses", DEFAULT_MAX_REUSES_PER_EXECUTOR))
     if not 0 <= max_reuses <= 3:
@@ -950,6 +974,9 @@ def plan(args):
             sort_keys=True,
         ))
         return
+    if getattr(args, "model_policy", "current") == "current":
+        args.routing_config = profiles.resolve_routing_config(
+            getattr(args, "repository", None), getattr(args, "profile", None))
     try:
         tasks = json.loads(args.tasks_json)
     except json.JSONDecodeError as exc:
@@ -1208,6 +1235,7 @@ def record(args):
 
 
 def _add_route_arguments(parser):
+    parser.add_argument("--profile", choices=tuple(profiles.ROUTING_PROFILES))
     parser.add_argument("--model-policy", choices=("current", "legacy"), default="current")
     parser.add_argument("--available-model", action="append", help="Complete observed execution surface; omit if unknown")
     parser.add_argument("--task-kind", choices=("mechanical", "ordinary", "complex"), default="ordinary")
@@ -1281,9 +1309,36 @@ def _add_project_arguments(parser):
     parser.add_argument("--skill-path", type=Path, default=_default_skill_path())
 
 
+def profile_show(args):
+    state = _project_skill_state(args.repository)
+    if not state["enabled"]:
+        print(json.dumps(_project_disabled_result(state)))
+        return
+    print(json.dumps({"action": "profile-show", **profiles.resolve_routing_config(
+        args.repository, args.profile)}, sort_keys=True))
+
+
+def profile_set(args):
+    state = _project_skill_state(args.repository)
+    if not state["enabled"]:
+        print(json.dumps(_project_disabled_result(state)))
+        return
+    result = profiles.set_routing_profile(args.profile_name, args.scope, args.repository)
+    print(json.dumps({"action": "profile-set", **result}, sort_keys=True))
+
+
 def parser():
     root = FailOpenArgumentParser()
     commands = root.add_subparsers(dest="command", required=True)
+    show = commands.add_parser("profile-show")
+    show.add_argument("--repository", type=Path, default=Path.cwd())
+    show.add_argument("--profile", choices=tuple(profiles.ROUTING_PROFILES))
+    show.set_defaults(func=profile_show)
+    profile = commands.add_parser("profile-set")
+    profile.add_argument("profile_name", choices=tuple(profiles.ROUTING_PROFILES))
+    profile.add_argument("--scope", choices=("global", "project"), default="project")
+    profile.add_argument("--repository", type=Path, default=Path.cwd())
+    profile.set_defaults(func=profile_set)
     single = commands.add_parser("decide")
     _add_route_arguments(single)
     _add_reuse_arguments(single)

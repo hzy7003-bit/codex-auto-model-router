@@ -7,6 +7,14 @@ SKILLS_ROOT="$CODEX_HOME/skills"
 SKILL_TARGET="$SKILLS_ROOT/codex-auto-model-router"
 LEGACY_SKILL_TARGET="$SKILLS_ROOT/codex-model-router"
 AGENT_TARGET="$CODEX_HOME/agents"
+INSTALL_HOOK=0
+for argument in "$@"; do
+  case "$argument" in
+    --install-hook) INSTALL_HOOK=1 ;;
+    *) printf '%s\n' "Unknown option: $argument" >&2; exit 2 ;;
+  esac
+done
+HOOK_CONFIG="$CODEX_HOME/hooks.json"
 
 # Keep all copying and content checks before touching an existing installation.
 # The target directory is project-owned, so swapping it also removes stale files.
@@ -28,6 +36,8 @@ success=0
 skill_swapped=0
 legacy_skill_moved=0
 agents_changed=0
+hook_config_changed=0
+hook_config_existed=0
 
 inject_failure() {
   point=$1
@@ -52,6 +62,13 @@ restore_agents() {
 
 rollback() {
   [ "$success" -eq 1 ] && return
+  if [ "$hook_config_changed" -eq 1 ]; then
+    rm -f "$HOOK_CONFIG"
+    if [ "$hook_config_existed" -eq 1 ]; then
+      cp -p "$BACKUP_ROOT/hooks.json" "$HOOK_CONFIG"
+    fi
+    hook_config_changed=0
+  fi
   if [ "$agents_changed" -eq 1 ]; then
     restore_agents
     agents_changed=0
@@ -137,7 +154,24 @@ for file in "$STAGED_AGENTS"/*.toml; do
 done
 inject_failure after-agent-swap
 
+if [ "$INSTALL_HOOK" -eq 1 ]; then
+  if [ -L "$HOOK_CONFIG" ] || [ -d "$HOOK_CONFIG" ] || { [ -e "$HOOK_CONFIG" ] && [ ! -f "$HOOK_CONFIG" ]; }; then
+    printf '%s\n' "Refusing to replace non-regular hook config: $HOOK_CONFIG" >&2
+    exit 1
+  fi
+  if [ -f "$HOOK_CONFIG" ]; then
+    cp -p "$HOOK_CONFIG" "$BACKUP_ROOT/hooks.json"
+    hook_config_existed=1
+  fi
+  hook_config_changed=1
+  python3 "$SKILL_TARGET/scripts/configure_user_hook.py" --codex-home "$CODEX_HOME"
+  inject_failure after-hook-install
+fi
+
 success=1
 printf '%s\n' "Installed codex-auto-model-router into $CODEX_HOME"
 printf '%s\n' "Reconciled this project's skill and custom-agent presets; migrated legacy names when present."
+if [ "$INSTALL_HOOK" -eq 1 ]; then
+  printf '%s\n' "Installed the global UserPromptSubmit hook. Review and trust it with /hooks, then restart Codex."
+fi
 printf '%s\n' "Restart Codex to refresh skills and custom agents."

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$InstallHook)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -8,11 +8,14 @@ $skillsRoot = Join-Path $codexHome 'skills'
 $skillTarget = Join-Path $skillsRoot 'codex-auto-model-router'
 $legacySkillTarget = Join-Path $skillsRoot 'codex-model-router'
 $agentTarget = Join-Path $codexHome 'agents'
+$hookConfig = Join-Path $codexHome 'hooks.json'
 $stageRoot = $null
 $backupRoot = $null
 $skillSwapped = $false
 $legacySkillMoved = $false
 $agentsChanged = $false
+$hookConfigChanged = $false
+$hookConfigExisted = $false
 $completed = $false
 
 $legacyPresets = @(
@@ -69,12 +72,13 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'agents/openai.yaml') -Destination (Join-Path $stagedSkill 'agents/openai.yaml')
     Get-ChildItem -LiteralPath (Join-Path $root 'references') -File -Filter '*.md' | Copy-Item -Destination (Join-Path $stagedSkill 'references') -Force
     Copy-Item -LiteralPath (Join-Path $root 'references/benchmark-evidence.json') -Destination (Join-Path $stagedSkill 'references/benchmark-evidence.json')
+    Copy-Item -LiteralPath (Join-Path $root 'references/model-catalog.json') -Destination (Join-Path $stagedSkill 'references/model-catalog.json')
     Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -File -Filter '*.py' | Copy-Item -Destination (Join-Path $stagedSkill 'scripts') -Force
     Get-ChildItem -LiteralPath (Join-Path $root 'codex-agents') -File -Filter '*.toml' | Copy-Item -Destination $stagedAgents -Force
 
     foreach ($source in @(
         (Join-Path $root 'SKILL.md'), (Join-Path $root 'agents/openai.yaml')
-    ) + (Get-ChildItem -LiteralPath (Join-Path $root 'references') -File -Filter '*.md' | ForEach-Object { $_.FullName }) + @((Join-Path $root 'references/benchmark-evidence.json')) + (Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -File -Filter '*.py' | ForEach-Object { $_.FullName })) {
+    ) + (Get-ChildItem -LiteralPath (Join-Path $root 'references') -File -Filter '*.md' | ForEach-Object { $_.FullName }) + @((Join-Path $root 'references/benchmark-evidence.json'), (Join-Path $root 'references/model-catalog.json')) + (Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -File -Filter '*.py' | ForEach-Object { $_.FullName })) {
         $relative = $source.Substring($root.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
         if (-not (Test-FileContentEqual $source (Join-Path $stagedSkill $relative))) { throw "Staged payload verification failed: $relative" }
     }
@@ -116,12 +120,38 @@ try {
     Get-ChildItem -LiteralPath $stagedAgents -File -Filter '*.toml' | Move-Item -Destination $agentTarget
     Invoke-InjectedFailure 'after-agent-swap'
 
+    if ($InstallHook) {
+        $hookItem = Get-Item -LiteralPath $hookConfig -Force -ErrorAction SilentlyContinue
+        if ($null -ne $hookItem) {
+            if ($hookItem.PSIsContainer -or $hookItem.LinkType) { throw "Refusing to replace non-regular hook config: $hookConfig" }
+            Copy-Item -LiteralPath $hookConfig -Destination (Join-Path $backupRoot 'hooks.json')
+            $hookConfigExisted = $true
+        }
+        $hookConfigChanged = $true
+        $python = Get-Command 'python3' -ErrorAction SilentlyContinue
+        if (-not $python) { $python = Get-Command 'python' -ErrorAction SilentlyContinue }
+        if ($python) {
+            & $python.Source (Join-Path $skillTarget 'scripts/configure_user_hook.py') --codex-home $codexHome
+        } else {
+            $pythonLauncher = Get-Command 'py' -ErrorAction SilentlyContinue
+            if (-not $pythonLauncher) { throw 'Python 3 is required to install the prompt hook.' }
+            & $pythonLauncher.Source -3 (Join-Path $skillTarget 'scripts/configure_user_hook.py') --codex-home $codexHome
+        }
+        if ($LASTEXITCODE -ne 0) { throw "Prompt hook registration failed with exit code $LASTEXITCODE" }
+        Invoke-InjectedFailure 'after-hook-install'
+    }
+
     $completed = $true
     Write-Output "Installed codex-auto-model-router into $codexHome"
     Write-Output 'Reconciled this project''s skill and custom-agent presets; migrated legacy names when present.'
+    if ($InstallHook) { Write-Output 'Installed the global UserPromptSubmit hook. Review and trust it with /hooks, then restart Codex.' }
     Write-Output 'Restart Codex to refresh skills and custom agents.'
 }
 catch {
+    if ($hookConfigChanged) {
+        Remove-Item -LiteralPath $hookConfig -Force -ErrorAction SilentlyContinue
+        if ($hookConfigExisted) { Move-Item -LiteralPath (Join-Path $backupRoot 'hooks.json') -Destination $hookConfig -Force }
+    }
     if ($agentsChanged) { Restore-OwnedAgents }
     if ($skillSwapped) {
         Remove-Item -LiteralPath $skillTarget -Recurse -Force -ErrorAction SilentlyContinue

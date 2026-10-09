@@ -1519,8 +1519,8 @@ class RoutePolicyTests(unittest.TestCase):
 
     def test_parallel_envelope_rejects_rehashed_segment_schema_tampering(self):
         mutations = (
-            ("model", "gpt-5.5", "invalid GPT-5.6 model"),
-            ("model", "gpt-9", "invalid GPT-5.6 model"),
+            ("model", "gpt-5.5", "invalid routing model"),
+            ("model", "gpt-9", "invalid routing model"),
             ("effort", "ultra", "invalid reasoning effort"),
             ("task_kind", "guess", "invalid task_kind"),
         )
